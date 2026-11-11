@@ -1,0 +1,31 @@
+{
+  "name": "@local/dsh-web-search-brave",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Brave Search API provider for the DSH web capability seam (ctx.web): registers the 'brave' search provider so the model-facing web_search tool runs on Brave.",
+  "peerDependencies": {
+    "@deepseek-ai/dsh-credentials": ">=0.2.2-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-launch-environment": ">=0.2.2-rc.1 <0.3.0",
+    "@deepseek-ai/dsh-web": ">=0.2.2-rc.1 <0.3.0",
+    "@deepseek-ai/schemastery": ">=3.19.0 <4.0.0"
+  },
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": ["index.js", "client.js", "cordis.patch.yml", "locale/*.json", "icon.svg", "README.md", "DEVELOPMENT.md"],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": ["@deepseek-ai/dsh-client-ui-plugin-manager", "@deepseek-ai/dsh-client-ui-settings"]
+    }
+  }
+}

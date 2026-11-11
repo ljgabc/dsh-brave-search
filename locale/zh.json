@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Brave 网页搜索",
+    "description": "把 Brave Search API 注册为 DSH 的搜索提供方（brave），模型的原生 web_search 工具通过 Brave 检索：结构化来源、凭据服务管理密钥、无密钥时自动撤下工具。"
+  }
+}
