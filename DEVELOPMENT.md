@@ -51,6 +51,20 @@
 
 要停用 Brave 但保留插件，用方式一在用户层改钉 `searchProvider` 即可；条目级 disable 前必须同时改钉，否则搜索直接报错。
 
+## 配置
+
+插件页 → Brave 网页搜索 → 配置（保存即时生效，无需重启）。表单分三节：密钥常显；高级设置默认折叠；使用情况独立分节。
+
+| 字段 | 说明 |
+|---|---|
+| Brave API 密钥 | [API 控制台](https://api-dashboard.search.brave.com/) API Keys 页的订阅密钥；留空回退环境变量 `BRAVE_API_KEY` |
+| API 根地址 | 默认 `https://api.search.brave.com/res/v1`，留空自动；走代理时填同路径结构 |
+| 国家/地区代码 | ISO 3166 两位代码（如 `cn`、`us`）；留空由 Brave 自动判定 |
+| 搜索语言 | 如 `zh-hans`、`en`；留空自动 |
+| 结果类型 | Brave `result_filter`，逗号分隔；默认 `web,news`，可加 `videos`、`discussions` |
+
+> 真实密钥不要写进本仓库。等价方式：写进用户补丁层（`~/.dsh/profiles/web/cordis.patch.yml`）的 `- id: web-search-brave, config: { apiKey: … }`，或导出 `BRAVE_API_KEY`（含 `~/.dsh/.env`，重启后生效）。
+
 ## 使用统计
 
 - 内存优先计数 + fire-and-forget 落盘：统计永不延迟、永不失败一次搜索；持久化失败仅记 warn。

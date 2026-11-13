@@ -43,6 +43,7 @@ window.__ModuleLoader__.load({
       'form.saveFailed': '保存失败，请重试',
       'form.unavailable': '配置暂不可用',
       'form.loading': '加载中…',
+      'form.advanced': '高级设置',
       'usage.title': '使用情况',
       'usage.today': '今日搜索',
       'usage.successes': '成功',
@@ -76,6 +77,7 @@ window.__ModuleLoader__.load({
       'form.saveFailed': 'Save failed, please retry',
       'form.unavailable': 'Configuration unavailable',
       'form.loading': 'Loading…',
+      'form.advanced': 'Advanced settings',
       'usage.title': 'Usage',
       'usage.today': 'Today',
       'usage.successes': 'Succeeded',
@@ -109,6 +111,12 @@ window.__ModuleLoader__.load({
 .dswsb-note{color:var(--dsw-alias-label-tertiary);font-size:12px;margin:0}
 .dswsb-error{color:var(--dsw-alias-state-danger-default);font-size:12px;margin:0}
 .dswsb-summary{color:var(--dsw-alias-label-tertiary)}
+.dswsb-summary{cursor:pointer;color:var(--dsw-alias-label-primary);font-weight:600;list-style:none;display:flex;align-items:center;gap:7px;user-select:none}
+.dswsb-summary::-webkit-details-marker{display:none}
+.dswsb-summary::before{content:'';width:0;height:0;border-left:5px solid var(--dsw-alias-label-tertiary);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .15s ease}
+details[open]>.dswsb-summary::before{transform:rotate(90deg)}
+.dswsb-advanced{display:flex;flex-direction:column;gap:12px;border-top:.5px solid var(--dsw-alias-border-l2);padding-top:14px}
+.dswsb-detailsBody{display:flex;flex-direction:column;gap:16px}
 .dswsb-usage{display:flex;flex-direction:column;gap:12px;border-top:.5px solid var(--dsw-alias-border-l2);padding-top:14px}
 .dswsb-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(72px,1fr));gap:10px}
 .dswsb-stat{display:flex;flex-direction:column;gap:2px}
@@ -122,14 +130,21 @@ window.__ModuleLoader__.load({
 .dswsb-meta{display:flex;flex-direction:column;gap:2px}
 `
 
-    /** Every field is a plain string; the token renders as a password box. */
-    const TEXT_FIELDS = [
+    /** The one essential field, always visible at the top of the form. */
+    const PRIMARY_FIELDS = [
       ['apiKey', 'form.apiKey', 'form.apiKeyHint'],
+    ]
+    /** Rarely changed localization and endpoint fields, folded behind a
+     *  collapsed <details> so the card stays glanceable. */
+    const ADVANCED_FIELDS = [
       ['baseURL', 'form.baseURL', 'form.baseURLHint'],
       ['country', 'form.country', 'form.countryHint'],
       ['searchLang', 'form.searchLang', 'form.searchLangHint'],
       ['resultFilter', 'form.resultFilter', 'form.resultFilterHint'],
     ]
+    /** Every editable field in form order; the save diff walks this list
+     *  regardless of which section renders each input. */
+    const TEXT_FIELDS = [...PRIMARY_FIELDS, ...ADVANCED_FIELDS]
 
     /**
      * One glanceable usage panel, fetched from the Host's read-only route
@@ -147,8 +162,12 @@ window.__ModuleLoader__.load({
           .catch(() => { if (alive) setStatus('error') })
         return () => { alive = false }
       }, [])
-      const panel = (...children) => h('div', { className: 'dswsb-usage' },
-        h('span', { className: 'dswsb-label' }, t('usage.title')),
+      // A native <details> section: starts expanded (the feature is the
+      // reason to open this card), folds away on demand. React only writes
+      // the `open` attribute when the prop changes, so it never fights the
+      // user's own toggling on re-render.
+      const panel = (...children) => h('details', { className: 'dswsb-usage', open: true },
+        h('summary', { className: 'dswsb-summary' }, t('usage.title')),
         ...children)
       if (status === 'error') return panel(h('p', { className: 'dswsb-hint' }, t('usage.unavailable')))
       if (status !== 'ready' || usage === null) return panel(h('p', { className: 'dswsb-hint' }, t('usage.loading')))
@@ -243,20 +262,21 @@ window.__ModuleLoader__.load({
       }
 
       const disabled = saving || state.writable === false
+      const renderField = ([key, labelKey, hintKey]) => h('label', { className: 'dswsb-field', key },
+        h('span', { className: 'dswsb-label' }, t(labelKey)),
+        h('input', {
+          className: 'dswsb-input',
+          type: key === 'apiKey' ? 'password' : 'text',
+          value: read(key, ''),
+          disabled,
+          autoComplete: 'off',
+          spellCheck: false,
+          onChange: event => setDraft({ ...current, [key]: event.target.value }),
+        }),
+        h('p', { className: 'dswsb-hint' }, t(hintKey)),
+      )
       return h('div', { className: 'dswsb-form' },
-        ...TEXT_FIELDS.map(([key, labelKey, hintKey]) => h('label', { className: 'dswsb-field', key },
-          h('span', { className: 'dswsb-label' }, t(labelKey)),
-          h('input', {
-            className: 'dswsb-input',
-            type: key === 'apiKey' ? 'password' : 'text',
-            value: read(key, ''),
-            disabled,
-            autoComplete: 'off',
-            spellCheck: false,
-            onChange: event => setDraft({ ...current, [key]: event.target.value }),
-          }),
-          h('p', { className: 'dswsb-hint' }, t(hintKey)),
-        )),
+        ...PRIMARY_FIELDS.map(renderField),
         h('div', { className: 'dswsb-actions', key: 'actions' },
           h('button', {
             type: 'button',
@@ -268,6 +288,10 @@ window.__ModuleLoader__.load({
             className: note === 'form.saveFailed' ? 'dswsb-error' : 'dswsb-note',
           }, t(note)),
         ),
+        h('details', { className: 'dswsb-advanced', key: 'advanced' },
+          h('summary', { className: 'dswsb-summary' }, t('form.advanced')),
+          h('div', { className: 'dswsb-detailsBody' },
+            ...ADVANCED_FIELDS.map(renderField))),
         h(UsageSection, { key: 'usage' }),
       )
     }
