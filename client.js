@@ -277,6 +277,13 @@ details[open]>.dswsb-summary::before{transform:rotate(90deg)}
       )
       return h('div', { className: 'dswsb-form' },
         ...PRIMARY_FIELDS.map(renderField),
+        h('details', { className: 'dswsb-advanced', key: 'advanced' },
+          h('summary', { className: 'dswsb-summary' }, t('form.advanced')),
+          h('div', { className: 'dswsb-detailsBody' },
+            ...ADVANCED_FIELDS.map(renderField))),
+        // Save sits at the end of the editable area: right under the key
+        // field when advanced is folded, right under the four advanced
+        // fields when it is expanded — one button, no scroll-back.
         h('div', { className: 'dswsb-actions', key: 'actions' },
           h('button', {
             type: 'button',
@@ -288,10 +295,6 @@ details[open]>.dswsb-summary::before{transform:rotate(90deg)}
             className: note === 'form.saveFailed' ? 'dswsb-error' : 'dswsb-note',
           }, t(note)),
         ),
-        h('details', { className: 'dswsb-advanced', key: 'advanced' },
-          h('summary', { className: 'dswsb-summary' }, t('form.advanced')),
-          h('div', { className: 'dswsb-detailsBody' },
-            ...ADVANCED_FIELDS.map(renderField))),
         h(UsageSection, { key: 'usage' }),
       )
     }
