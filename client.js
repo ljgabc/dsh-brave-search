@@ -43,6 +43,19 @@ window.__ModuleLoader__.load({
       'form.saveFailed': '保存失败，请重试',
       'form.unavailable': '配置暂不可用',
       'form.loading': '加载中…',
+      'usage.title': '使用情况',
+      'usage.today': '今日搜索',
+      'usage.successes': '成功',
+      'usage.failures': '失败',
+      'usage.aborted': '已取消',
+      'usage.rateLimited': '限速命中',
+      'usage.total': '累计搜索',
+      'usage.last7': '近 7 天',
+      'usage.lastSearch': '最近搜索',
+      'usage.lastError': '最近错误',
+      'usage.never': '还没有搜索',
+      'usage.loading': '统计加载中…',
+      'usage.unavailable': '统计不可用（存储或连接服务未就绪）',
     }
     const en = {
       'summary.off': 'No key configured (falls back to BRAVE_API_KEY)',
@@ -63,6 +76,19 @@ window.__ModuleLoader__.load({
       'form.saveFailed': 'Save failed, please retry',
       'form.unavailable': 'Configuration unavailable',
       'form.loading': 'Loading…',
+      'usage.title': 'Usage',
+      'usage.today': 'Today',
+      'usage.successes': 'Succeeded',
+      'usage.failures': 'Failed',
+      'usage.aborted': 'Cancelled',
+      'usage.rateLimited': 'Rate-limited',
+      'usage.total': 'Total searches',
+      'usage.last7': 'Last 7 days',
+      'usage.lastSearch': 'Last search',
+      'usage.lastError': 'Last error',
+      'usage.never': 'No searches yet',
+      'usage.loading': 'Loading usage…',
+      'usage.unavailable': 'Usage unavailable (storage or connection service not ready)',
     }
 
     let translate = key => (zh[key] ?? key)
@@ -83,6 +109,17 @@ window.__ModuleLoader__.load({
 .dswsb-note{color:var(--dsw-alias-label-tertiary);font-size:12px;margin:0}
 .dswsb-error{color:var(--dsw-alias-state-danger-default);font-size:12px;margin:0}
 .dswsb-summary{color:var(--dsw-alias-label-tertiary)}
+.dswsb-usage{display:flex;flex-direction:column;gap:12px;border-top:.5px solid var(--dsw-alias-border-l2);padding-top:14px}
+.dswsb-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(72px,1fr));gap:10px}
+.dswsb-stat{display:flex;flex-direction:column;gap:2px}
+.dswsb-statValue{font-size:18px;font-weight:600;color:var(--dsw-alias-label-primary);line-height:24px}
+.dswsb-bars{display:flex;gap:6px;height:56px}
+.dswsb-barCol{flex:1;display:flex;flex-direction:column;gap:3px;min-width:0}
+.dswsb-barCount{color:var(--dsw-alias-label-tertiary);font-size:10px;text-align:center;line-height:12px;min-height:12px}
+.dswsb-barTrack{flex:1;display:flex;align-items:flex-end}
+.dswsb-barFill{width:100%;background:var(--dsw-alias-state-business-primary);border-radius:3px 3px 0 0;min-height:2px}
+.dswsb-barDay{color:var(--dsw-alias-label-tertiary);font-size:10px;text-align:center;line-height:12px}
+.dswsb-meta{display:flex;flex-direction:column;gap:2px}
 `
 
     /** Every field is a plain string; the token renders as a password box. */
@@ -93,6 +130,60 @@ window.__ModuleLoader__.load({
       ['searchLang', 'form.searchLang', 'form.searchLangHint'],
       ['resultFilter', 'form.resultFilter', 'form.resultFilterHint'],
     ]
+
+    /**
+     * One glanceable usage panel, fetched from the Host's read-only route
+     * when the config page opens. Numbers are the current local day plus
+     * all-time totals; the bars cover the last seven local days.
+     */
+    function UsageSection () {
+      const [usage, setUsage] = useState(null)
+      const [status, setStatus] = useState('loading')
+      useEffect(() => {
+        let alive = true
+        fetch('api/web-search-brave/usage')
+          .then(response => (response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`))))
+          .then(data => { if (alive) { setUsage(data); setStatus('ready') } })
+          .catch(() => { if (alive) setStatus('error') })
+        return () => { alive = false }
+      }, [])
+      const panel = (...children) => h('div', { className: 'dswsb-usage' },
+        h('span', { className: 'dswsb-label' }, t('usage.title')),
+        ...children)
+      if (status === 'error') return panel(h('p', { className: 'dswsb-hint' }, t('usage.unavailable')))
+      if (status !== 'ready' || usage === null) return panel(h('p', { className: 'dswsb-hint' }, t('usage.loading')))
+      const maxDay = Math.max(1, ...usage.last7.map(day => day.searches))
+      const stat = (key, value) => h('div', { className: 'dswsb-stat', key },
+        h('span', { className: 'dswsb-statValue' }, String(value)),
+        h('span', { className: 'dswsb-hint' }, t(key)))
+      const time = at => (typeof at === 'number' ? new Date(at).toLocaleString() : '')
+      return panel(
+        h('div', { className: 'dswsb-stats', key: 'stats' },
+          stat('usage.today', usage.today.searches),
+          stat('usage.successes', usage.today.successes),
+          stat('usage.failures', usage.today.failures),
+          stat('usage.aborted', usage.today.aborted),
+          stat('usage.rateLimited', usage.today.rateLimited),
+          stat('usage.total', usage.total.searches)),
+        h('div', { key: 'last7' },
+          h('p', { className: 'dswsb-hint' }, t('usage.last7')),
+          h('div', { className: 'dswsb-bars' },
+            ...usage.last7.map(day => h('div', { className: 'dswsb-barCol', key: day.date },
+              h('span', { className: 'dswsb-barCount' }, day.searches > 0 ? String(day.searches) : ''),
+              h('div', { className: 'dswsb-barTrack' },
+                h('div', {
+                  className: 'dswsb-barFill',
+                  style: { height: `${Math.max(3, Math.round((day.searches / maxDay) * 100))}%` },
+                })),
+              h('span', { className: 'dswsb-barDay' }, day.date.slice(5)))))),
+        h('div', { className: 'dswsb-meta', key: 'meta' },
+          h('p', { className: 'dswsb-hint' },
+            `${t('usage.lastSearch')}：${typeof usage.lastSearchAt === 'number' ? time(usage.lastSearchAt) : t('usage.never')}`),
+          usage.lastError === null || typeof usage.lastError !== 'object' ? null
+            : h('p', { className: 'dswsb-error' },
+              `${t('usage.lastError')}：${usage.lastError.code} · ${time(usage.lastError.at)} — ${usage.lastError.message}`)),
+      )
+    }
 
     function BraveSearchConfigForm ({ view, form }) {
       // Every hook runs before any conditional return, so the summary and
@@ -177,6 +268,7 @@ window.__ModuleLoader__.load({
             className: note === 'form.saveFailed' ? 'dswsb-error' : 'dswsb-note',
           }, t(note)),
         ),
+        h(UsageSection, { key: 'usage' }),
       )
     }
 

@@ -28,6 +28,13 @@
  *
  * All config fields are `.volatile()`: the Plugins page configuration form
  * (and profile patch edits) apply live, and every read happens at use time.
+ *
+ * Usage statistics are auxiliary: one storage-domain row per local day
+ * (searches / successes / failures / aborts / rate-limit bites / sources),
+ * persisted fire-and-forget so accounting can never delay or fail a search,
+ * and served to the Plugins page through a read-only authenticated Fetch
+ * route. When the storage or connection service is absent — or opening
+ * fails — statistics silently disable and search keeps working.
  */
 
 import z from '@deepseek-ai/schemastery'
@@ -53,6 +60,13 @@ const BRAVE_MAX_COUNT = 20
 
 /** Attribution header sent on every request; bump with the package version. */
 const USER_AGENT = 'dsh-web-search-brave/1.0.0'
+
+/** Storage domain holding one row per calendar day of usage counters. */
+const USAGE_DOMAIN_NAME = 'web_search_brave'
+/** Read-only authenticated Fetch route serving the aggregated usage snapshot. */
+const USAGE_ROUTE_PATH = '/api/web-search-brave/usage'
+/** Cap on the persisted last-error message so one huge error cannot bloat storage. */
+const USAGE_MESSAGE_MAX = 300
 
 /**
  * Backoff before the single 429 retry. The free tier allows 1 query/second,
@@ -241,10 +255,17 @@ function endpointError(endpoint, message, cause) {
  * each operation's entry, so a settings-section change between searches never
  * mixes two sections and never re-registers the provider (re-registering
  * would make seam selection observable as a flicker).
+ *
+ * `resolveTracker` is a thunk so the provider can register (and serve
+ * searches) before the usage tracker finishes opening its storage domain;
+ * the only instrumentation inside the provider is the 429 hit — the single
+ * fact only this layer can observe. Entry/success/failure/abort accounting
+ * lives in the apply-level wrapper.
  */
 class BraveSearchProvider {
-  constructor(resolveOptions) {
+  constructor(resolveOptions, resolveTracker = () => null) {
     this.resolveOptions = resolveOptions
+    this.resolveTracker = resolveTracker
     this.id = BRAVE_PROVIDER_ID
   }
 
@@ -322,9 +343,11 @@ class BraveSearchProvider {
         // redirect: 'error' rejects redirects here before following them.
         throw endpointError(endpoint, `Brave search request failed: ${String(error)}`, error)
       }
-      // The free tier allows one query per second: a single bounded, 
+      // The free tier allows one query per second: a single bounded,
       // abort-aware retry into the next second's quota is the documented
       // recovery for 429; anything beyond one is a real limit, not jitter.
+      // Every 429 response counts one rate-limit bite, retried or not.
+      if (response.status === 429) this.resolveTracker()?.recordRateLimit()
       if (response.status !== 429 || attempt > 0) break
       await sleepAbortable(RATE_LIMIT_RETRY_DELAY_MS, signal)
     }
@@ -383,6 +406,207 @@ class BraveSearchProvider {
   }
 }
 
+/** Local-timezone calendar day of a timestamp, as `YYYY-MM-DD`. */
+function dateIdOf(now) {
+  const date = new Date(now)
+  const pad = value => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+/**
+ * Boundary validation for one stored usage day; doubles as the table's
+ * `valueSchema.parse`. Throws on any deviation so damaged storage fails loud
+ * at open instead of serving silently wrong counters.
+ */
+function parseUsageDayRecord(raw) {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    throw new Error('usage day must be an object')
+  }
+  if (typeof raw.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/u.test(raw.date)) {
+    throw new Error('usage day date must be YYYY-MM-DD')
+  }
+  for (const key of ['searches', 'successes', 'failures', 'aborted', 'rateLimited', 'sources']) {
+    const value = raw[key]
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+      throw new Error(`usage day ${key} must be a non-negative integer`)
+    }
+  }
+  if (typeof raw.updatedAt !== 'number' || !Number.isFinite(raw.updatedAt) || raw.updatedAt < 0) {
+    throw new Error('usage day updatedAt must be a non-negative finite number')
+  }
+  return raw
+}
+
+const usageDomainSpec = {
+  name: USAGE_DOMAIN_NAME,
+  version: 1,
+  tables: { days: { valueSchema: { parse: parseUsageDayRecord } } },
+}
+
+/**
+ * In-memory-first usage accounting with best-effort persistence. Counters
+ * update synchronously on the search path; the day row is persisted
+ * fire-and-forget so a slow or failing disk never delays or fails a search.
+ * A null `table` means in-memory only (storage service absent or failed to
+ * open) — counting continues, history just does not survive restarts.
+ */
+class UsageTracker {
+  constructor(table, now = Date.now, logger = undefined) {
+    this.table = table ?? null
+    this.now = now
+    this.logger = logger
+    /** dateId → day record; rebuilt from storage on restore. */
+    this.days = new Map()
+    this.lastSearchAt = null
+    this.lastError = null
+  }
+
+  /** Load every stored day into a fresh tracker (restart recovery). */
+  static restore(table, now, logger) {
+    const tracker = new UsageTracker(table, now, logger)
+    if (table !== undefined && table !== null) {
+      for (const [id, record] of table.entries()) tracker.days.set(id, record)
+    }
+    return tracker
+  }
+
+  /** The current local day's record, created on first touch. */
+  day() {
+    const date = dateIdOf(this.now())
+    let record = this.days.get(date)
+    if (record === undefined) {
+      record = { date, searches: 0, successes: 0, failures: 0, aborted: 0, rateLimited: 0, sources: 0, updatedAt: this.now() }
+      this.days.set(date, record)
+    }
+    return record
+  }
+
+  /** Persist one day row without ever disturbing the caller. */
+  flush(record) {
+    record.updatedAt = this.now()
+    if (this.table === null) return
+    this.table.put(record.date, { ...record }).catch(error => {
+      this.logger?.warn?.(`web-search-brave: usage persist failed: ${String(error)}`)
+    })
+  }
+
+  recordSearch() {
+    const record = this.day()
+    record.searches += 1
+    this.lastSearchAt = this.now()
+    this.flush(record)
+  }
+
+  recordSuccess(sourceCount) {
+    const record = this.day()
+    record.successes += 1
+    record.sources += sourceCount
+    this.flush(record)
+  }
+
+  recordAborted() {
+    const record = this.day()
+    record.aborted += 1
+    this.flush(record)
+  }
+
+  recordRateLimit() {
+    const record = this.day()
+    record.rateLimited += 1
+    this.flush(record)
+  }
+
+  recordFailure(code, message) {
+    const record = this.day()
+    record.failures += 1
+    const text = String(message ?? '')
+    this.lastError = { code: String(code ?? 'UNKNOWN'), message: text.length > USAGE_MESSAGE_MAX ? `${text.slice(0, USAGE_MESSAGE_MAX - 1)}…` : text, at: this.now() }
+    this.flush(record)
+  }
+
+  /**
+   * Aggregated read for the usage route: today, all-time totals, the last
+   * seven local days (zero-filled so the chart stays continuous), and the
+   * most recent search/error facts.
+   */
+  snapshot() {
+    const empty = { searches: 0, successes: 0, failures: 0, aborted: 0, rateLimited: 0, sources: 0 }
+    const total = { ...empty }
+    for (const record of this.days.values()) {
+      for (const key of Object.keys(empty)) total[key] += record[key] ?? 0
+    }
+    const today = dateIdOf(this.now())
+    const last7 = []
+    const todayMs = this.now()
+    for (let offset = 6; offset >= 0; offset -= 1) {
+      const date = dateIdOf(todayMs - offset * 86_400_000)
+      const record = this.days.get(date)
+      last7.push({ date, searches: record?.searches ?? 0, successes: record?.successes ?? 0, failures: record?.failures ?? 0 })
+    }
+    const todayRecord = this.days.get(today)
+    return {
+      today: { date: today, ...empty, ...(todayRecord === undefined ? {} : {
+        searches: todayRecord.searches, successes: todayRecord.successes, failures: todayRecord.failures,
+        aborted: todayRecord.aborted, rateLimited: todayRecord.rateLimited, sources: todayRecord.sources,
+      }) },
+      total,
+      last7,
+      lastSearchAt: this.lastSearchAt,
+      lastError: this.lastError,
+    }
+  }
+}
+
+/**
+ * Open the usage domain, adopting an orphaned activation the same way
+ * prompt-library does: a reload that failed between open and its cleanup
+ * effect leaves the domain open with no owner; the facility lookup repairs
+ * that leak. In every other state this simply opens a fresh domain.
+ */
+async function openUsageDomain(storageDomain) {
+  try {
+    return await storageDomain.open(usageDomainSpec)
+  } catch (error) {
+    if (error instanceof Error && error.code === 'already-open') {
+      const existing = storageDomain.get(USAGE_DOMAIN_NAME)
+      if (existing !== undefined) return existing
+    }
+    throw error
+  }
+}
+
+/**
+ * Wire usage statistics when both auxiliary services exist: a storage domain
+ * for durable day rows and an authenticated Fetch route for the client's
+ * read. Any failure here disables only the statistics — the search provider
+ * registered by apply keeps working — so the caller gets null, never a throw.
+ */
+async function createUsageTracker(ctx) {
+  const storageDomain = ctx.get('storageDomain')
+  const connection = ctx.get('connection')
+  if (storageDomain === undefined || connection === undefined) return null
+  try {
+    const domain = await openUsageDomain(storageDomain)
+    // Own each resource from the moment it is acquired, so a later failure
+    // in this apply can never leak it.
+    ctx.effect(() => async () => { await domain.close() }, 'web-search-brave: usage storage domain')
+    const tracker = UsageTracker.restore(domain.table('days'), undefined, ctx.logger)
+    const disposeRoute = await connection.fetch.register({
+      path: USAGE_ROUTE_PATH,
+      methods: ['GET'],
+      fetch: async () => new Response(JSON.stringify(tracker.snapshot()), {
+        status: 200,
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+      }),
+    })
+    ctx.effect(() => async () => { await disposeRoute() }, 'web-search-brave: usage route')
+    return tracker
+  } catch (error) {
+    ctx.logger?.warn?.(`web-search-brave: usage statistics disabled (${String(error)})`)
+    return null
+  }
+}
+
 /**
  * Project one resolved section into the options the provider serves its next
  * search with. Environment fallbacks stay here rather than in the provider:
@@ -406,9 +630,14 @@ function resolveOptions(ctx, config) {
 }
 
 /**
- * Register the Brave search provider with `ctx.web`.
+ * Register the Brave search provider with `ctx.web`, then attach usage
+ * statistics. Registration comes first: opening the usage storage domain is
+ * asynchronous, and searches must never wait on it. The tracker reaches both
+ * the provider (429 bites) and the registered search wrapper (entry,
+ * success, failure, abort) through the `tracker` cell — searches that run
+ * before it settles are simply not counted.
  */
-export function apply(ctx, config) {
+export async function apply(ctx, config) {
   const options = () =>
     resolveOptions(ctx, {
       apiKey: config.apiKey,
@@ -417,11 +646,28 @@ export function apply(ctx, config) {
       searchLang: config.searchLang,
       resultFilter: config.resultFilter,
     })
-  const provider = new BraveSearchProvider(options)
+  let tracker = null
+  const provider = new BraveSearchProvider(options, () => tracker)
   ctx.web.registerSearchProvider({
     id: provider.id,
     available: () => provider.available(),
     ready: llmProvider => provider.ready(llmProvider),
-    search: (request, signal) => provider.search(request, signal),
+    search: async (request, signal) => {
+      if (tracker !== null) tracker.recordSearch()
+      try {
+        const result = await provider.search(request, signal)
+        if (tracker !== null) tracker.recordSuccess(result.sources.length)
+        return result
+      } catch (error) {
+        if (tracker !== null) {
+          // Caller cancellation is not the backend's failure: it gets its own
+          // counter and never overwrites lastError.
+          if (error instanceof WebError && error.code === 'WEB_ABORTED') tracker.recordAborted()
+          else tracker.recordFailure(error?.code, error?.message)
+        }
+        throw error
+      }
+    },
   })
+  tracker = await createUsageTracker(ctx)
 }

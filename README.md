@@ -16,6 +16,8 @@ DSH 插件：把 [Brave Search API](https://api-dashboard.search.brave.com/) 注
 
 > 真实密钥不要写进本仓库。等价方式：写进用户补丁层（`~/.dsh/profiles/web/cordis.patch.yml`）的 `- id: web-search-brave, config: { apiKey: … }`，或导出 `BRAVE_API_KEY`（含 `~/.dsh/.env`，重启后生效）。
 
+配置卡片底部是**使用情况**：今日与累计搜索、成功 / 失败 / 取消、限速命中、近 7 天分布、最近搜索与最近错误。统计按本地日持久保存，重启不丢；存储服务缺失时统计自动停用，搜索不受影响。
+
 ## 切换与停用
 
 - 换回 DeepSeek 搜索：用户补丁层覆盖 `- id: web, config: { searchProvider: deepseek-official }`（或 `deepseek-search-api`）。

@@ -32,16 +32,63 @@ const lastQuery = () => new URL(requests.at(-1).url, 'http://x').searchParams
 // ------------------------------------------------------------------- helpers
 
 /** Apply the plugin with a plain config object against a mock ctx; the
- *  credentials service is injectable per scenario. */
-function build(config, { credentials } = {}) {
+ *  credentials service and the usage-statistics services are injectable per
+ *  scenario. apply is async (it opens the usage storage domain), so every
+ *  caller awaits the built provider. */
+async function build(config, { credentials, storageDomain, connection } = {}) {
   const registered = []
+  const effects = []
   const ctx = {
-    get: service => (service === 'credentials' ? credentials : undefined),
+    get: service => {
+      if (service === 'credentials') return credentials
+      if (service === 'storageDomain') return storageDomain
+      if (service === 'connection') return connection
+      return undefined
+    },
     web: { registerSearchProvider: provider => registered.push(provider) },
+    effect: (dispose, label) => { effects.push({ dispose, label }) },
+    logger: { warn: () => {}, info: () => {} },
   }
-  apply(ctx, config)
+  await apply(ctx, config)
   assert.equal(registered.length, 1, 'apply must register exactly one provider')
   return registered[0]
+}
+
+/** Minimal storage-domain double: one table over a Map; `put` stores a deep
+ *  copy so later in-memory mutations never leak into "persisted" state. */
+function mockStorageDomain() {
+  const rows = new Map()
+  const table = {
+    entries: () => [...rows.entries()],
+    get: id => rows.get(id),
+    put: async (id, value) => { rows.set(id, JSON.parse(JSON.stringify(value))) },
+  }
+  const domain = { table: () => table, close: async () => {} }
+  return { rows, open: async () => domain, get: name => (name === 'web_search_brave' ? domain : undefined) }
+}
+
+/** Minimal connection double capturing registered Fetch routes. */
+function mockConnection() {
+  const routes = new Map()
+  return {
+    routes,
+    fetch: { register: async route => { routes.set(route.path, route); return () => routes.delete(route.path) } },
+  }
+}
+
+/** The current local calendar day, mirroring the provider's dateIdOf. */
+function todayId() {
+  const date = new Date()
+  const pad = value => String(value).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+}
+
+/** Read the usage snapshot through one captured route. */
+async function readUsage(connection) {
+  const route = connection.routes.get('/api/web-search-brave/usage')
+  const response = await route.fetch()
+  assert.equal(response.status, 200)
+  return await response.json()
 }
 
 const validate = candidate => Config['~standard'].validate(candidate).value
@@ -80,7 +127,7 @@ cleanEnv()
 // ------------------------------------------------- registration & available
 
 {
-  const provider = build(validate({ apiKey: 'k' }))
+  const provider = await build(validate({ apiKey: 'k' }))
   assert.equal(provider.id, 'brave')
   assert.equal(typeof provider.available, 'function')
   assert.equal(typeof provider.ready, 'function')
@@ -106,7 +153,7 @@ cleanEnv()
     ] },
     videos: { results: [{ title: 'Video', url: 'https://video.example.com/v', description: 'a video hit' }] },
   })
-  const provider = build(validate({ apiKey: 'lit-key', baseURL: BASE }))
+  const provider = await build(validate({ apiKey: 'lit-key', baseURL: BASE }))
   const result = await provider.search({ query: 'deepseek ai 搜索', maxResults: 10 })
 
   assert.equal(result.truncated, false, 'the seam owns truncation; the provider never sets it')
@@ -142,7 +189,7 @@ cleanEnv()
 // --------------------------------------------------------- count clamping
 
 {
-  const provider = build(validate({ apiKey: 'k', baseURL: BASE }))
+  const provider = await build(validate({ apiKey: 'k', baseURL: BASE }))
   handler = jsonResponse(200, {})
   await provider.search({ query: 'x', maxResults: 50 })
   assert.equal(lastQuery().get('count'), '20', 'Brave caps count at 20')
@@ -157,7 +204,7 @@ cleanEnv()
 
 {
   handler = jsonResponse(200, {})
-  const provider = build(validate({ apiKey: 'k', baseURL: BASE, country: 'cn', searchLang: 'zh-hans' }))
+  const provider = await build(validate({ apiKey: 'k', baseURL: BASE, country: 'cn', searchLang: 'zh-hans' }))
   await provider.search({ query: 'x' })
   assert.equal(lastQuery().get('country'), 'cn')
   assert.equal(lastQuery().get('search_lang'), 'zh-hans')
@@ -168,7 +215,7 @@ cleanEnv()
 
 {
   // Missing everywhere: literal empty, no credentials service, no env.
-  const provider = build(validate({ baseURL: BASE }))
+  const provider = await build(validate({ baseURL: BASE }))
   assert.equal(await provider.ready(undefined), false)
   const before = requests.length
   await assert.rejects(provider.search({ query: 'x' }), isWebError('WEB_PROVIDER_CREDENTIAL_MISSING'))
@@ -186,7 +233,7 @@ cleanEnv()
 
   // Credentials service: stored value wins over ambient env.
   process.env.BRAVE_API_KEY = 'env-key'
-  const stored = build(validate({ baseURL: BASE }), {
+  const stored = await build(validate({ baseURL: BASE }), {
     credentials: {
       describe: async () => ({ configured: true }),
       resolve: async () => ({ value: 'stored-key', source: 'store' }),
@@ -197,7 +244,7 @@ cleanEnv()
   assert.equal(await stored.ready(undefined), true)
 
   // Credentials service configured but empty falls through to the env tier.
-  const unconfigured = build(validate({ baseURL: BASE }), {
+  const unconfigured = await build(validate({ baseURL: BASE }), {
     credentials: {
       describe: async () => ({ configured: false }),
       resolve: async () => undefined,
@@ -209,7 +256,7 @@ cleanEnv()
   cleanEnv()
 
   // An unreadable credential store answers ready() false.
-  const broken = build(validate({ baseURL: BASE }), {
+  const broken = await build(validate({ baseURL: BASE }), {
     credentials: {
       describe: async () => { throw new Error('store unreadable') },
       resolve: async () => { throw new Error('store unreadable') },
@@ -220,7 +267,7 @@ cleanEnv()
 
   // The literal key still wins over everything.
   process.env.BRAVE_API_KEY = 'env-key'
-  const literal = build(validate({ apiKey: 'lit-key', baseURL: BASE }), {
+  const literal = await build(validate({ apiKey: 'lit-key', baseURL: BASE }), {
     credentials: { describe: async () => ({ configured: true }), resolve: async () => ({ value: 'stored-key', source: 'store' }) },
   })
   await literal.search({ query: 'x' })
@@ -232,7 +279,7 @@ cleanEnv()
 // ------------------------------------------------------------ HTTP errors
 
 {
-  const provider = build(validate({ apiKey: 'k', baseURL: BASE }))
+  const provider = await build(validate({ apiKey: 'k', baseURL: BASE }))
   handler = jsonResponse(401, { error: { code: 'AUTH', detail: 'invalid subscription token' } })
   await assert.rejects(provider.search({ query: 'x' }), error => {
     isWebError('WEB_PROVIDER_ERROR')(error)
@@ -260,7 +307,7 @@ cleanEnv()
 // ----------------------------------------------------------- rate limiting
 
 {
-  const provider = build(validate({ apiKey: 'k', baseURL: BASE }))
+  const provider = await build(validate({ apiKey: 'k', baseURL: BASE }))
   let hits = 0
   handler = (record, res) => {
     hits += 1
@@ -290,7 +337,7 @@ cleanEnv()
 // -------------------------------------------------------------- abortion
 
 {
-  const provider = build(validate({ apiKey: 'k', baseURL: BASE }))
+  const provider = await build(validate({ apiKey: 'k', baseURL: BASE }))
   handler = jsonResponse(200, {})
 
   const pre = new AbortController()
@@ -310,7 +357,7 @@ cleanEnv()
 // -------------------------------------------------------------- redirects
 
 {
-  const provider = build(validate({ apiKey: 'k', baseURL: BASE }))
+  const provider = await build(validate({ apiKey: 'k', baseURL: BASE }))
   handler = (record, res) => {
     res.writeHead(302, { location: 'https://elsewhere.example.com/' })
     res.end()
@@ -326,14 +373,14 @@ cleanEnv()
 
   // Config wins over the environment override.
   process.env.BRAVE_SEARCH_BASE_URL = 'https://env-ignored.example.com/res/v1'
-  const provider = build(validate({ apiKey: 'k', baseURL: BASE }))
+  const provider = await build(validate({ apiKey: 'k', baseURL: BASE }))
   await provider.search({ query: 'x' })
   assert.ok(requests.at(-1).url.startsWith('/web/search?'))
   assert.equal(requests.at(-1).headers.host, `127.0.0.1:${port}`)
 
   // Environment override applies when config is empty.
   process.env.BRAVE_SEARCH_BASE_URL = `${BASE}/res/v1`
-  const envProvider = build(validate({ apiKey: 'k' }))
+  const envProvider = await build(validate({ apiKey: 'k' }))
   await envProvider.search({ query: 'x' })
   assert.equal(requests.at(-1).headers.host, `127.0.0.1:${port}`)
   cleanEnv()
@@ -342,7 +389,7 @@ cleanEnv()
   // the suite's one deliberate online probe: it verifies the composed default
   // endpoint really is the documented Brave host (a 422 from Brave names it),
   // and tolerates an offline machine (fetch failure names it too).
-  const defaultProvider = build(validate({ apiKey: 'k' }))
+  const defaultProvider = await build(validate({ apiKey: 'k' }))
   assert.equal(defaultProvider.available(), true)
   await assert.rejects(defaultProvider.search({ query: 'x' }), error => {
     assert.ok(!(error instanceof WebError) || error.code === 'WEB_PROVIDER_ERROR')
@@ -351,9 +398,91 @@ cleanEnv()
   })
 
   // A structurally broken baseURL reads as unavailable.
-  const broken = build(validate({ apiKey: 'k', baseURL: 'not a url' }))
+  const broken = await build(validate({ apiKey: 'k', baseURL: 'not a url' }))
   assert.equal(broken.available(), false)
   console.log('OK: baseURL resolution order is config > $BRAVE_SEARCH_BASE_URL > default')
+}
+
+// ------------------------------------------------------ usage statistics
+
+{
+  const storage = mockStorageDomain()
+  const connection = mockConnection()
+  const provider = await build(validate({ apiKey: 'k', baseURL: BASE }), { storageDomain: storage, connection })
+  assert.ok(connection.routes.has('/api/web-search-brave/usage'), 'the usage route must be registered')
+
+  // Initial snapshot: zeroed today, continuous zero-filled last 7 days.
+  let usage = await readUsage(connection)
+  assert.equal(usage.today.searches, 0)
+  assert.equal(usage.last7.length, 7)
+  assert.equal(usage.last7[6].date, todayId())
+  assert.equal(usage.lastError, null)
+
+  // A successful search counts entry, success, and returned sources.
+  handler = jsonResponse(200, { web: { results: [
+    { title: 'A', url: 'https://a.example.com', description: 'a' },
+    { title: 'B', url: 'https://b.example.com' },
+  ] } })
+  await provider.search({ query: 'x' })
+  usage = await readUsage(connection)
+  assert.equal(usage.today.searches, 1)
+  assert.equal(usage.today.successes, 1)
+  assert.equal(usage.today.sources, 2)
+  assert.equal(usage.total.searches, 1)
+  assert.notEqual(usage.lastSearchAt, null)
+
+  // A failure counts once and records the last error.
+  handler = jsonResponse(401, { error: { detail: 'bad token' } })
+  await assert.rejects(provider.search({ query: 'x' }), isWebError('WEB_PROVIDER_ERROR'))
+  usage = await readUsage(connection)
+  assert.equal(usage.today.failures, 1)
+  assert.equal(usage.lastError.code, 'WEB_PROVIDER_ERROR')
+
+  // Caller cancellation counts as its own outcome and never overwrites the
+  // last error.
+  const controller = new AbortController()
+  controller.abort()
+  await assert.rejects(provider.search({ query: 'x' }, controller.signal), isWebError('WEB_ABORTED'))
+  usage = await readUsage(connection)
+  assert.equal(usage.today.aborted, 1)
+  assert.equal(usage.today.failures, 1, 'aborts are not failures')
+  assert.equal(usage.lastError.code, 'WEB_PROVIDER_ERROR', 'an abort must not overwrite lastError')
+
+  // A 429 bite is counted even when the single retry then succeeds.
+  let hits = 0
+  handler = (record, res) => {
+    hits += 1
+    if (hits === 1) return jsonResponse(429, { error: { detail: 'slow down' } })(record, res)
+    return jsonResponse(200, { web: { results: [{ title: 'T', url: 'https://t.example.com' }] } })(record, res)
+  }
+  await provider.search({ query: 'x' })
+  usage = await readUsage(connection)
+  assert.equal(usage.today.rateLimited, 1)
+  assert.equal(usage.today.successes, 2)
+  assert.equal(usage.today.searches, 4, 'every dispatched search counts an entry')
+
+  // The day row is persisted with the full counter set.
+  const stored = storage.rows.get(todayId())
+  assert.ok(stored !== undefined, 'today\'s row must be persisted')
+  assert.equal(stored.searches, 4)
+  assert.equal(stored.rateLimited, 1)
+  assert.equal(stored.sources, 3)
+
+  // Restart recovery: a fresh apply over the same storage keeps history.
+  const connection2 = mockConnection()
+  const provider2 = await build(validate({ apiKey: 'k', baseURL: BASE }), { storageDomain: storage, connection: connection2 })
+  handler = jsonResponse(200, {})
+  await provider2.search({ query: 'x' })
+  usage = await readUsage(connection2)
+  assert.equal(usage.total.searches, 5, 'restored counters continue from the persisted rows')
+  assert.equal(usage.today.searches, 5)
+
+  // Without the auxiliary services, search still works and nothing throws.
+  const bare = await build(validate({ apiKey: 'k', baseURL: BASE }))
+  handler = jsonResponse(200, {})
+  const bareResult = await bare.search({ query: 'x' })
+  assert.equal(bareResult.truncated, false)
+  console.log('OK: usage statistics count, persist, restore, and degrade without auxiliary services')
 }
 
 server.close()
