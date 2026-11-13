@@ -410,6 +410,12 @@ cleanEnv()
   const connection = mockConnection()
   const provider = await build(validate({ apiKey: 'k', baseURL: BASE }), { storageDomain: storage, connection })
   assert.ok(connection.routes.has('/api/web-search-brave/usage'), 'the usage route must be registered')
+  // Route contract: the bridge builds its Request from requestBody — an
+  // undeclared mode makes a GET route throw before the handler runs
+  // ("Request with GET/HEAD method cannot have body").
+  const registeredRoute = connection.routes.get('/api/web-search-brave/usage')
+  assert.ok(registeredRoute.methods.includes('GET'))
+  assert.equal(registeredRoute.requestBody, 'buffered')
 
   // Initial snapshot: zeroed today, continuous zero-filled last 7 days.
   let usage = await readUsage(connection)

@@ -610,6 +610,11 @@ async function createUsageTracker(ctx) {
     const disposeRoute = await connection.fetch.register({
       path: USAGE_ROUTE_PATH,
       methods: ['GET'],
+      // The bridge derives its Request construction from this declaration:
+      // an undeclared mode builds a streaming-body Request, which throws
+      // "Request with GET/HEAD method cannot have body" for a GET before the
+      // handler ever runs. 'buffered' builds a bodyless Request for GET.
+      requestBody: 'buffered',
       fetch: async () => new Response(JSON.stringify(tracker.snapshot()), {
         status: 200,
         headers: { 'content-type': 'application/json; charset=utf-8' },
