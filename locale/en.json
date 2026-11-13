@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Brave web search",
-    "description": "Registers the Brave Search API as the DSH search provider (brave) so the model-facing web_search tool runs on Brave: structured sources, credentials-service key management, and tool withdrawal while no key is configured."
+    "description": "Registers the Brave Search API as the DSH search provider (brave): the model-facing web_search tool runs on Brave with direct REST calls and no model turns; the tool withdraws while no key is configured."
   }
 }
