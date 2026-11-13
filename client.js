@@ -17,7 +17,7 @@ window.__ModuleLoader__.load({
   id: '@local/dsh-web-search-brave',
   factory (require) {
     const React = require('react')
-    const { createElement: h, useState, useEffect } = React
+    const { createElement: h, useState, useEffect, memo } = React
 
     const NS = 'web-search-brave'
     const SETTINGS_NAMESPACE = 'web-search-brave'
@@ -150,8 +150,12 @@ details[open]>.dswsb-summary::before{transform:rotate(90deg)}
      * One glanceable usage panel, fetched from the Host's read-only route
      * when the config page opens. Numbers are the current local day plus
      * all-time totals; the bars cover the last seven local days.
+     *
+     * Memoized: the panel is independent of the config draft, so it renders
+     * exactly twice (mount, fetch result) instead of on every keystroke in
+     * the config form above it.
      */
-    function UsageSection () {
+    const UsageSection = memo(function UsageSection () {
       const [usage, setUsage] = useState(null)
       const [status, setStatus] = useState('loading')
       useEffect(() => {
@@ -163,9 +167,9 @@ details[open]>.dswsb-summary::before{transform:rotate(90deg)}
         return () => { alive = false }
       }, [])
       // A native <details> section: starts expanded (the feature is the
-      // reason to open this card), folds away on demand. React only writes
-      // the `open` attribute when the prop changes, so it never fights the
-      // user's own toggling on re-render.
+      // reason to open this card), folds away on demand. The memo above
+      // bounds re-renders to the fetch completing — before any user toggle —
+      // and React never rewrites an unchanged `open` prop, so folding sticks.
       const panel = (...children) => h('details', { className: 'dswsb-usage', open: true },
         h('summary', { className: 'dswsb-summary' }, t('usage.title')),
         ...children)
@@ -202,7 +206,7 @@ details[open]>.dswsb-summary::before{transform:rotate(90deg)}
             : h('p', { className: 'dswsb-error' },
               `${t('usage.lastError')}：${usage.lastError.code} · ${time(usage.lastError.at)} — ${usage.lastError.message}`)),
       )
-    }
+    })
 
     function BraveSearchConfigForm ({ view, form }) {
       // Every hook runs before any conditional return, so the summary and

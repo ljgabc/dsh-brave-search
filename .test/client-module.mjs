@@ -7,6 +7,7 @@ const reactShim = {
   useState: initial => [typeof initial === 'function' ? initial() : initial, () => {}],
   useEffect: () => {},
   useCallback: fn => fn,
+  memo: component => component,
 }
 const globalWindow = {
   __ModuleLoader__: {
