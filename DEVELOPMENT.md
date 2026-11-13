@@ -75,6 +75,7 @@
 ```sh
 node --check index.js && node --check client.js      # 语法检查
 node --import ./.test/register.mjs ./.test/run.mjs   # 宿主侧行为回归（本地 mock Brave 服务器）
+TZ=America/New_York node --import ./.test/register.mjs ./.test/dst.mjs   # 7 天窗口的夏令时边界
 node .test/client-module.mjs                         # 客户端模块注册模拟
 ```
 

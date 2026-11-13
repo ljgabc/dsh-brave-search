@@ -2,7 +2,7 @@
 // Run: node --import ./.test/register.mjs ./.test/run.mjs
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
-import { apply, Config, name, inject } from '../index.js'
+import { apply, Config, name, inject, UsageTracker } from '../index.js'
 import { WebError } from '@deepseek-ai/dsh-web'
 
 // ---------------------------------------------------------------- mock server
@@ -483,6 +483,41 @@ cleanEnv()
   const bareResult = await bare.search({ query: 'x' })
   assert.equal(bareResult.truncated, false)
   console.log('OK: usage statistics count, persist, restore, and degrade without auxiliary services')
+}
+
+// ------------------------------------------------- midnight day rollover
+
+{
+  // Injected clock, direct on UsageTracker: counters split at the local
+  // midnight boundary and the 7-day window slides to the new today.
+  const rows = new Map()
+  const table = {
+    entries: () => [...rows.entries()],
+    get: id => rows.get(id),
+    put: async (id, value) => { rows.set(id, JSON.parse(JSON.stringify(value))) },
+  }
+  let clock = new Date(2026, 10, 12, 23, 59, 30).getTime()   // 2026-11-12 23:59:30 local
+  const tracker = new UsageTracker(table, () => clock)
+  tracker.recordSearch()
+  tracker.recordSuccess(5)
+  clock = new Date(2026, 10, 13, 0, 0, 30).getTime()          // 2026-11-13 00:00:30 local
+  tracker.recordSearch()
+  tracker.recordFailure('WEB_PROVIDER_ERROR', 'x')
+
+  const snap = tracker.snapshot()
+  assert.equal(snap.today.date, '2026-11-13')
+  assert.equal(snap.today.searches, 1)
+  assert.equal(snap.today.failures, 1)
+  assert.equal(snap.today.successes, 0, 'the previous day\'s success stays on its own row')
+  assert.equal(snap.total.searches, 2)
+  assert.equal(snap.total.sources, 5)
+  assert.equal(rows.size, 2, 'one row per calendar day')
+  assert.equal(snap.last7[6].date, '2026-11-13')
+  assert.equal(snap.last7[6].searches, 1)
+  assert.equal(snap.last7[5].date, '2026-11-12')
+  assert.equal(snap.last7[5].searches, 1)
+  assert.equal(snap.last7[0].date, '2026-11-07', 'the window slides with today')
+  console.log('OK: counters split at local midnight; the 7-day window slides')
 }
 
 server.close()

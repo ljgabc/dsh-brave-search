@@ -449,8 +449,12 @@ const usageDomainSpec = {
  * fire-and-forget so a slow or failing disk never delays or fails a search.
  * A null `table` means in-memory only (storage service absent or failed to
  * open) — counting continues, history just does not survive restarts.
+ *
+ * Exported for direct testing: the injectable `now` clock is the seam the
+ * midnight-rollover and DST-boundary tests use; production callers pass
+ * nothing and get `Date.now`.
  */
-class UsageTracker {
+export class UsageTracker {
   constructor(table, now = Date.now, logger = undefined) {
     this.table = table ?? null
     this.now = now
@@ -530,25 +534,37 @@ class UsageTracker {
    * most recent search/error facts.
    */
   snapshot() {
+    // One clock read for the whole snapshot: two reads could straddle
+    // midnight and disagree about which day "today" is.
+    const now = this.now()
     const empty = { searches: 0, successes: 0, failures: 0, aborted: 0, rateLimited: 0, sources: 0 }
     const total = { ...empty }
     for (const record of this.days.values()) {
       for (const key of Object.keys(empty)) total[key] += record[key] ?? 0
     }
-    const today = dateIdOf(this.now())
+    const today = dateIdOf(now)
     const last7 = []
-    const todayMs = this.now()
     for (let offset = 6; offset >= 0; offset -= 1) {
-      const date = dateIdOf(todayMs - offset * 86_400_000)
+      // Calendar-day subtraction: setDate crosses month and year boundaries
+      // and stays correct across DST transitions, where a fixed 24h step in
+      // milliseconds can land on the wrong calendar date near midnight.
+      const day = new Date(now)
+      day.setDate(day.getDate() - offset)
+      const date = dateIdOf(day.getTime())
       const record = this.days.get(date)
       last7.push({ date, searches: record?.searches ?? 0, successes: record?.successes ?? 0, failures: record?.failures ?? 0 })
     }
     const todayRecord = this.days.get(today)
+    const todayCounters = todayRecord === undefined ? empty : {
+      searches: todayRecord.searches,
+      successes: todayRecord.successes,
+      failures: todayRecord.failures,
+      aborted: todayRecord.aborted,
+      rateLimited: todayRecord.rateLimited,
+      sources: todayRecord.sources,
+    }
     return {
-      today: { date: today, ...empty, ...(todayRecord === undefined ? {} : {
-        searches: todayRecord.searches, successes: todayRecord.successes, failures: todayRecord.failures,
-        aborted: todayRecord.aborted, rateLimited: todayRecord.rateLimited, sources: todayRecord.sources,
-      }) },
+      today: { date: today, ...todayCounters },
       total,
       last7,
       lastSearchAt: this.lastSearchAt,
