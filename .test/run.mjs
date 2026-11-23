@@ -31,27 +31,62 @@ const lastQuery = () => new URL(requests.at(-1).url, 'http://x').searchParams
 
 // ------------------------------------------------------------------- helpers
 
-/** Apply the plugin with a plain config object against a mock ctx; the
- *  credentials service and the usage-statistics services are injectable per
- *  scenario. apply is async (it opens the usage storage domain), so every
- *  caller awaits the built provider. */
-async function build(config, { credentials, storageDomain, connection } = {}) {
+/** Mock plugin context shaped like the Loader's: services resolve through
+ *  get, apply-scoped effects are collected, and ctx.inject models the
+ *  Cordis nested fiber — the callback starts once every dependency resolves,
+ *  including when that happens only after apply has returned (the race the
+ *  statistics wiring must survive). */
+function makeCtx(services = {}) {
+  const bag = { ...services }
   const registered = []
   const effects = []
+  const started = []
+  const waiting = []
+  const LOGGER = { warn: () => {}, info: () => {} }
+  const makeScope = () => ({
+    get: service => bag[service],
+    effect: (dispose, label) => { effects.push({ dispose, label }) },
+    logger: LOGGER,
+  })
   const ctx = {
-    get: service => {
-      if (service === 'credentials') return credentials
-      if (service === 'storageDomain') return storageDomain
-      if (service === 'connection') return connection
-      return undefined
-    },
+    get: service => bag[service],
     web: { registerSearchProvider: provider => registered.push(provider) },
     effect: (dispose, label) => { effects.push({ dispose, label }) },
-    logger: { warn: () => {}, info: () => {} },
+    inject: (deps, callback) => {
+      const scope = makeScope()
+      const tryStart = () => (deps.every(service => bag[service] !== undefined)
+        ? (started.push(callback(scope)), true)
+        : false)
+      if (!tryStart()) waiting.push(tryStart)
+    },
+    logger: LOGGER,
   }
-  await apply(ctx, config)
-  assert.equal(registered.length, 1, 'apply must register exactly one provider')
-  return registered[0]
+  return {
+    ctx,
+    registered,
+    /** Deliver late services the way Cordis wakes a waiting inject fiber. */
+    async provide(late) {
+      Object.assign(bag, late)
+      for (const tryStart of waiting.splice(0)) tryStart()
+      await Promise.all(started)
+    },
+    /** Settle every started nested fiber (statistics wiring is detached). */
+    async settle() {
+      await Promise.all(started)
+    },
+  }
+}
+
+/** Apply the plugin with a plain config object against a mock ctx; the
+ *  credentials service and the usage-statistics services are injectable per
+ *  scenario. Statistics wiring runs in the inject fiber and settles before
+ *  the provider is returned, so callers observe the wired state. */
+async function build(config, services = {}) {
+  const harness = makeCtx(services)
+  await apply(harness.ctx, config)
+  assert.equal(harness.registered.length, 1, 'apply must register exactly one provider')
+  await harness.settle()
+  return harness.registered[0]
 }
 
 /** Minimal storage-domain double: one table over a Map; `put` stores a deep
@@ -489,6 +524,35 @@ cleanEnv()
   const bareResult = await bare.search({ query: 'x' })
   assert.equal(bareResult.truncated, false)
   console.log('OK: usage statistics count, persist, restore, and degrade without auxiliary services')
+}
+
+// ------------------------------------------------ late auxiliary services
+
+// Regression for the 0.2.2-rc.5 composition: the web seam releases this
+// plugin before connection/storageDomain are provided. The old one-shot
+// ctx.get in apply silently dropped statistics in that order; the nested
+// inject fiber must wire them whenever they arrive.
+{
+  const harness = makeCtx()
+  await apply(harness.ctx, validate({ apiKey: 'k', baseURL: BASE }))
+  assert.equal(harness.registered.length, 1, 'apply registers the provider without waiting on statistics services')
+
+  // Search serves before any auxiliary service exists.
+  handler = jsonResponse(200, { web: { results: [{ title: 'T', url: 'https://t.example.com' }] } })
+  const early = await harness.registered[0].search({ query: 'x' })
+  assert.equal(early.sources.length, 1)
+
+  // The services arrive only now; the wiring must catch up.
+  const storage = mockStorageDomain()
+  const connection = mockConnection()
+  await harness.provide({ storageDomain: storage, connection })
+  assert.ok(connection.routes.has('/api/web-search-brave/usage'), 'late services must still register the usage route')
+
+  await harness.registered[0].search({ query: 'x' })
+  const usage = await readUsage(connection)
+  assert.equal(usage.today.searches, 1, 'searches after wiring count; the pre-wiring search does not')
+  assert.equal(usage.total.sources, 1)
+  console.log('OK: statistics wire up when auxiliary services arrive after apply')
 }
 
 // ------------------------------------------------- midnight day rollover

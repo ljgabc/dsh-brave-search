@@ -33,8 +33,12 @@
  * (searches / successes / failures / aborts / rate-limit bites / sources),
  * persisted fire-and-forget so accounting can never delay or fail a search,
  * and served to the Plugins page through a read-only authenticated Fetch
- * route. When the storage or connection service is absent — or opening
- * fails — statistics silently disable and search keeps working.
+ * route. They wire up in a nested inject fiber that waits for the
+ * storageDomain and connection services, because the composition may
+ * provide them only after the web seam releases this plugin (a one-shot
+ * service read in apply silently lost them on 0.2.2-rc.5). When either
+ * service never arrives — or opening fails — statistics silently disable
+ * and search keeps working.
  */
 
 import z from '@deepseek-ai/schemastery'
@@ -592,15 +596,15 @@ async function openUsageDomain(storageDomain) {
 }
 
 /**
- * Wire usage statistics when both auxiliary services exist: a storage domain
- * for durable day rows and an authenticated Fetch route for the client's
- * read. Any failure here disables only the statistics — the search provider
- * registered by apply keeps working — so the caller gets null, never a throw.
+ * Wire usage statistics over the two auxiliary services the caller's scope
+ * already holds: a storage domain for durable day rows and an authenticated
+ * Fetch route for the client's read. Any failure here disables only the
+ * statistics — the search provider registered by apply keeps working — so
+ * the caller gets null, never a throw.
  */
 async function createUsageTracker(ctx) {
   const storageDomain = ctx.get('storageDomain')
   const connection = ctx.get('connection')
-  if (storageDomain === undefined || connection === undefined) return null
   try {
     const domain = await openUsageDomain(storageDomain)
     // Own each resource from the moment it is acquired, so a later failure
@@ -652,13 +656,17 @@ function resolveOptions(ctx, config) {
 
 /**
  * Register the Brave search provider with `ctx.web`, then attach usage
- * statistics. Registration comes first: opening the usage storage domain is
- * asynchronous, and searches must never wait on it. The tracker reaches both
- * the provider (429 bites) and the registered search wrapper (entry,
- * success, failure, abort) through the `tracker` cell — searches that run
- * before it settles are simply not counted.
+ * statistics in a nested inject fiber. Registration comes first and never
+ * waits on statistics: the auxiliary services may be provided after the web
+ * seam releases this plugin (connection activates later in the composition),
+ * so a one-shot service read here silently dropped statistics on
+ * 0.2.2-rc.5 — the fiber waits for both services whenever they arrive, or
+ * never runs in a composition without them. The tracker reaches both the
+ * provider (429 bites) and the registered search wrapper (entry, success,
+ * failure, abort) through the `tracker` cell — searches that run before it
+ * settles are simply not counted.
  */
-export async function apply(ctx, config) {
+export function apply(ctx, config) {
   const options = () =>
     resolveOptions(ctx, {
       apiKey: config.apiKey,
@@ -690,5 +698,12 @@ export async function apply(ctx, config) {
       }
     },
   })
-  tracker = await createUsageTracker(ctx)
+  ctx.inject(['storageDomain', 'connection'], async scope => {
+    tracker = await createUsageTracker(scope)
+    // Release the tracker with this fiber: once the services go away (or the
+    // plugin unloads), counting degrades to memory-only instead of writing
+    // to a closing domain. Effect disposal is LIFO, so this runs before
+    // createUsageTracker's domain close.
+    scope.effect(() => () => { tracker = null }, 'web-search-brave: usage tracker release')
+  })
 }

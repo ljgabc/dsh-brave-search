@@ -71,8 +71,8 @@
 - 存储域 `web_search_brave`（表 `days`，版本 1）：每个本地日一行 `{ date, searches, successes, failures, aborted, rateLimited, sources, updatedAt }`，严格 schema 校验，损坏即响亮失败。
 - 埋点分两层：`apply` 注册的 search wrapper 记入口 / 成功（含来源数）/ 失败（记 lastError，消息截断 300 字符）/ 取消（独立计数，不覆盖 lastError）；provider 内部仅在 429 响应处记限速命中（只有该层知道）。
 - 读取走只读认证路由 `GET /api/web-search-brave/usage`，返回 `{ today, total, last7（零填充连续 7 天）, lastSearchAt, lastError }`。
-- `apply` 先注册搜索提供方、再异步打开统计：tracker 经 thunk 注入，统计就绪前的搜索不计入。重启时从存储域恢复全部历史行。
-- `storageDomain` / `connection` 任一缺失（或打开失败）→ 统计静默停用（tracker = null），搜索能力不受影响——辅助能力降级，核心不降。
+- `apply` 只注册搜索提供方；统计在嵌套 inject fiber（`ctx.inject(['storageDomain', 'connection'])`）中装配——组合可能在 web seam 释放本插件**之后**才提供这两个服务（0.2.2-rc.5 起 connection 晚于 web 激活），一次性 `ctx.get` 快照会静默错过（rc.5 更新后统计不可用的根因）。tracker 经 thunk 注入，装配前的搜索不计入。重启时从存储域恢复全部历史行。
+- `storageDomain` / `connection` 始终缺席 → 统计 fiber 永不运行，统计静默停用（tracker = null）；服务中途消失 → fiber 销毁并释放 tracker，计数退回内存；打开失败 → 记 warn 后停用。三种情况搜索能力均不受影响——辅助能力降级，核心不降。
 
 ## 安装（其他机器）
 
