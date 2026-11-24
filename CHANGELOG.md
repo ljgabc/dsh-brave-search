@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.1
+
+- **依赖声明收敛**：移除 `@deepseek-ai/dsh-*` peer 声明，`engines.dsh >=0.2.2-rc.5` 成为唯一兼容闸门。依据：DSH 兼容预检在 `engines.dsh` 存在时完全忽略 dsh peers，旧 peer 区间却在 npm 层宣称了未测试的 rc.1 兼容；第三方惯例（bark-notify / prompt-dock）亦只靠 engines 闸门。运行时导入不变（4 个官方 seam/基础设施包，经 Loader 拦截解析，不进安装树）。
+
 ## 1.1.0
 
 - **补丁层不再钉扎 `searchProvider`**：安装只注册 `brave` 提供方，不改任何全局默认。此前 bundle 层自带钉扎会让"装了插件但没配密钥"的用户 `web_search` 整体撤下（`ready()=false` → 工具撤下契约），且提供方选择按 DSH rc.4 起的立场属于部署决策而非包决策。选 Brave：设置页菜单（推荐）/ 用户补丁（须同时重申 `fetchProvider`）/ `$DSH_WEB_SEARCH_PROVIDER`。从 1.0.0 升级且依赖自带钉扎的用户：在设置页选一次 Brave，或把钉扎写进用户补丁。

@@ -63,7 +63,7 @@ const BRAVE_DEFAULT_API_KEY_ENV = 'BRAVE_API_KEY'
 const BRAVE_MAX_COUNT = 20
 
 /** Attribution header sent on every request; bump with the package version. */
-const USER_AGENT = 'dsh-brave-search/1.1.0'
+const USER_AGENT = 'dsh-brave-search/1.1.1'
 
 /** Storage domain holding one row per calendar day of usage counters. */
 const USAGE_DOMAIN_NAME = 'web_search_brave'

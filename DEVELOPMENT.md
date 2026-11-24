@@ -73,6 +73,15 @@
 - `apply` 只注册搜索提供方；统计在嵌套 inject fiber（`ctx.inject(['storageDomain', 'connection'])`）中装配——组合可能在 web seam 释放本插件**之后**才提供这两个服务（0.2.2-rc.5 起 connection 晚于 web 激活），一次性 `ctx.get` 快照会静默错过（rc.5 更新后统计不可用的根因）。tracker 经 thunk 注入，装配前的搜索不计入。重启时从存储域恢复全部历史行。
 - `storageDomain` / `connection` 始终缺席 → 统计 fiber 永不运行，统计静默停用（tracker = null）；服务中途消失 → fiber 销毁并释放 tracker，计数退回内存；打开失败 → 记 warn 后停用。三种情况搜索能力均不受影响——辅助能力降级，核心不降。
 
+## 依赖面（升级稳定性契约，2026-11-24 审计）
+
+目标是 prompt-dock 1.3.0 式的最小破坏面——只依赖官方 seam 与文档化服务，不碰内部实现细节：
+
+- **服务端运行时导入恰好 4 个**，每个都不可再减：`schemastery`（Config 契约，全插件通用）、`dsh-web` 的 `WebError`（seam 错误分类法，自造 plain error 会脱离 seam 的错误归一）、`dsh-credentials` 的 `credentialRef`（单行品牌化校验，跟随 ref 格式演进——内联格式反而更脆）、`dsh-launch-environment` 的 `launchEnvironmentOf`（`~/.dsh/.env` 快照回退，`process.env` 不覆盖）。无 `node:` 导入、无 npm 运行时依赖、无构建步骤。
+- **服务消费全部走文档化 seam**：`ctx.web.registerSearchProvider`、`storageDomain.open/table`、`connection.fetch.register`（`requestBody: 'buffered'` 的坑已测试固化）。统计装配用 `ctx.inject` fiber 等服务，不假设提供时序（rc.5 事故的教训）。
+- **客户端零 `@deepseek-ai` 导入**：只 `require('react')`（宿主提供）；表单手写、样式只用文档化 `--dsw-*` 令牌。`dsh.client.inject` 声明的 `dsh-client-ui-plugin-manager` / `dsh-client-ui-settings` 是加载顺序声明（slots / configForms 服务来源），与 bark-notify 同款；`plugins.row.config` / `plugins.bundle.config` 插槽与 `configForms` 是社区契约（dsh-doc 未收录），实证 rc.1→rc.5 存活，属残余风险面——若未来 DSH 改动此处，退化形式是配置表单不可用，搜索功能不受影响。
+- **版本声明策略**：`engines.dsh` 是 DSH 兼容预检的唯一闸门（存在时忽略 dsh peers，`includePrerelease`），故不声明 `@deepseek-ai/dsh-*` peers（避免宣称未测试的兼容区间）；schemastery 保留 peer（外部库、跨版本稳定）。升级 DSH 后需重验的检查点：本文件「开发」一节的测试命令 + 运行实例上 usage 路由 200。
+
 ## 安装（其他机器）
 
 常规安装走 npm（见 README）；本机开发用软链接：
