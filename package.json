@@ -1,9 +1,30 @@
 {
-  "name": "@local/dsh-web-search-brave",
+  "name": "dsh-brave-search",
   "version": "1.0.0",
-  "private": true,
   "type": "module",
-  "description": "Brave Search API provider for the DSH web capability seam (ctx.web): registers the 'brave' search provider so the model-facing web_search tool runs on Brave.",
+  "description": "Brave Search provider for the DeepSeek Harness web capability seam (ctx.web): registers the 'brave' search provider so the model-facing web_search tool runs on Brave, with a Plugins-page config form, usage statistics, and bounded 429 retry. DSH 的 Brave 网页搜索提供方插件。",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "deepseek",
+    "brave",
+    "brave-search",
+    "web-search",
+    "search"
+  ],
+  "license": "MIT",
+  "author": "ljgabc <ljgabc@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ljgabc/dsh-brave-search.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ljgabc/dsh-brave-search/issues"
+  },
+  "homepage": "https://github.com/ljgabc/dsh-brave-search#readme",
+  "engines": {
+    "dsh": ">=0.2.2-rc.5"
+  },
   "peerDependencies": {
     "@deepseek-ai/dsh-credentials": ">=0.2.2-rc.1 <0.3.0",
     "@deepseek-ai/dsh-launch-environment": ">=0.2.2-rc.1 <0.3.0",
@@ -23,6 +44,8 @@
     "cordis.patch.yml",
     "locale/*.json",
     "icon.svg",
+    "README.md",
+    "CHANGELOG.md",
     "DEVELOPMENT.md"
   ],
   "dsh": {

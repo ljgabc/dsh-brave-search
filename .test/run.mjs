@@ -1,4 +1,4 @@
-// Offline behavioral test for dsh-web-search-brave/index.js.
+// Offline behavioral test for dsh-brave-search/index.js.
 // Run: node --import ./.test/register.mjs ./.test/run.mjs
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
@@ -120,7 +120,7 @@ function todayId() {
 
 /** Read the usage snapshot through one captured route. */
 async function readUsage(connection) {
-  const route = connection.routes.get('/api/web-search-brave/usage')
+  const route = connection.routes.get('/api/brave-search/usage')
   const response = await route.fetch()
   assert.equal(response.status, 200)
   return await response.json()
@@ -143,7 +143,7 @@ cleanEnv()
 // ------------------------------------------------------------ module shape
 
 {
-  assert.equal(name, 'web-search-brave')
+  assert.equal(name, 'brave-search')
   assert.ok(inject.includes('web'), 'inject must declare the web seam')
 
   // Volatile fields come back from validate() as { get() } refs (cosmokit's
@@ -217,7 +217,7 @@ cleanEnv()
   assert.equal(query.get('search_lang'), null)
   assert.equal(record.headers['x-subscription-token'], 'lit-key')
   assert.equal(record.headers.accept, 'application/json')
-  assert.match(record.headers['user-agent'], /^dsh-web-search-brave\//)
+  assert.match(record.headers['user-agent'], /^dsh-brave-search\//)
   console.log('OK: happy path maps, cleans, and dedupes; request carries the documented parameters')
 }
 
@@ -444,11 +444,11 @@ cleanEnv()
   const storage = mockStorageDomain()
   const connection = mockConnection()
   const provider = await build(validate({ apiKey: 'k', baseURL: BASE }), { storageDomain: storage, connection })
-  assert.ok(connection.routes.has('/api/web-search-brave/usage'), 'the usage route must be registered')
+  assert.ok(connection.routes.has('/api/brave-search/usage'), 'the usage route must be registered')
   // Route contract: the bridge builds its Request from requestBody — an
   // undeclared mode makes a GET route throw before the handler runs
   // ("Request with GET/HEAD method cannot have body").
-  const registeredRoute = connection.routes.get('/api/web-search-brave/usage')
+  const registeredRoute = connection.routes.get('/api/brave-search/usage')
   assert.ok(registeredRoute.methods.includes('GET'))
   assert.equal(registeredRoute.requestBody, 'buffered')
 
@@ -546,7 +546,7 @@ cleanEnv()
   const storage = mockStorageDomain()
   const connection = mockConnection()
   await harness.provide({ storageDomain: storage, connection })
-  assert.ok(connection.routes.has('/api/web-search-brave/usage'), 'late services must still register the usage route')
+  assert.ok(connection.routes.has('/api/brave-search/usage'), 'late services must still register the usage route')
 
   await harness.registered[0].search({ query: 'x' })
   const usage = await readUsage(connection)

@@ -1,4 +1,4 @@
-# dsh-web-search-brave — 机制与开发文档
+# dsh-brave-search — 机制与开发文档
 
 面向维护者的深度文档：seam 契约、选择机制、停用语义、安装与测试。插件页不渲染任何 README（已删除；locale 卡片描述是页面上唯一的说明文字），本文档是唯一的完整文档。
 
@@ -46,8 +46,8 @@
 
 ## 停用本插件时的两种开关，行为完全不同
 
-- **Bundle 级开关**（Plugins 页里 `@local/dsh-web-search-brave` 这一层 / `set_bundle`）：整层补丁退出组合——**连同 `searchProvider: brave` 钉扎一起消失**，`dsh-base` 的 `deepseek-official` 钉扎重新生效，自动回退。依赖保留在 node_modules，随时可再启用。已实测验证。
-- **插件条目开关**（条目上的 disable / `set_plugin`）：只给 `web-search-brave` 条目写 `disabled: true`，本插件不加载；但补丁层里**独立的 `id: web` 钉扎条目仍然生效**——`searchProvider: brave` 指向一个未注册的提供方，每次 `web_search` 以 `WEB_PROVIDER_CONFIGURED_MISSING` 结构化失败（且工具仍会出现：选择失败时 `searchReady` 按契约回答 true）。**这是坏状态，不是回退。**
+- **Bundle 级开关**（Plugins 页里 `dsh-brave-search` 这一层 / `set_bundle`）：整层补丁退出组合——**连同 `searchProvider: brave` 钉扎一起消失**，`dsh-base` 的 `deepseek-official` 钉扎重新生效，自动回退。依赖保留在 node_modules，随时可再启用。已实测验证。
+- **插件条目开关**（条目上的 disable / `set_plugin`）：只给 `brave-search` 条目写 `disabled: true`，本插件不加载；但补丁层里**独立的 `id: web` 钉扎条目仍然生效**——`searchProvider: brave` 指向一个未注册的提供方，每次 `web_search` 以 `WEB_PROVIDER_CONFIGURED_MISSING` 结构化失败（且工具仍会出现：选择失败时 `searchReady` 按契约回答 true）。**这是坏状态，不是回退。**
 
 要停用 Brave 但保留插件，用方式一在用户层改钉 `searchProvider` 即可；条目级 disable 前必须同时改钉，否则搜索直接报错。
 
@@ -63,26 +63,32 @@
 | 搜索语言 | 如 `zh-hans`、`en`；留空自动 |
 | 结果类型 | Brave `result_filter`，逗号分隔；默认 `web,news`，可加 `videos`、`discussions` |
 
-> 真实密钥不要写进本仓库。等价方式：写进用户补丁层（`~/.dsh/profiles/web/cordis.patch.yml`）的 `- id: web-search-brave, config: { apiKey: … }`，或导出 `BRAVE_API_KEY`（含 `~/.dsh/.env`，重启后生效）。
+> 真实密钥不要写进本仓库。等价方式：写进用户补丁层（`~/.dsh/profiles/web/cordis.patch.yml`）的 `- id: brave-search, config: { apiKey: … }`，或导出 `BRAVE_API_KEY`（含 `~/.dsh/.env`，重启后生效）。
 
 ## 使用统计
 
 - 内存优先计数 + fire-and-forget 落盘：统计永不延迟、永不失败一次搜索；持久化失败仅记 warn。
 - 存储域 `web_search_brave`（表 `days`，版本 1）：每个本地日一行 `{ date, searches, successes, failures, aborted, rateLimited, sources, updatedAt }`，严格 schema 校验，损坏即响亮失败。
 - 埋点分两层：`apply` 注册的 search wrapper 记入口 / 成功（含来源数）/ 失败（记 lastError，消息截断 300 字符）/ 取消（独立计数，不覆盖 lastError）；provider 内部仅在 429 响应处记限速命中（只有该层知道）。
-- 读取走只读认证路由 `GET /api/web-search-brave/usage`，返回 `{ today, total, last7（零填充连续 7 天）, lastSearchAt, lastError }`。
+- 读取走只读认证路由 `GET /api/brave-search/usage`，返回 `{ today, total, last7（零填充连续 7 天）, lastSearchAt, lastError }`。
 - `apply` 只注册搜索提供方；统计在嵌套 inject fiber（`ctx.inject(['storageDomain', 'connection'])`）中装配——组合可能在 web seam 释放本插件**之后**才提供这两个服务（0.2.2-rc.5 起 connection 晚于 web 激活），一次性 `ctx.get` 快照会静默错过（rc.5 更新后统计不可用的根因）。tracker 经 thunk 注入，装配前的搜索不计入。重启时从存储域恢复全部历史行。
 - `storageDomain` / `connection` 始终缺席 → 统计 fiber 永不运行，统计静默停用（tracker = null）；服务中途消失 → fiber 销毁并释放 tracker，计数退回内存；打开失败 → 记 warn 后停用。三种情况搜索能力均不受影响——辅助能力降级，核心不降。
 
 ## 安装（其他机器）
 
+常规安装走 npm（见 README）；本机开发用软链接：
+
 ```sh
 # 1. profile 依赖：在 ~/.dsh/profiles/web/package.json 加
-#    "@local/dsh-web-search-brave": "link:<本目录绝对路径>"
-# 2. bundles 列表追加 "@local/dsh-web-search-brave"
+#    "dsh-brave-search": "link:<本目录绝对路径>"
+# 2. bundles 列表追加 "dsh-brave-search"
 # 3. 在 profile 目录执行 pnpm install
 # 4. 重启 dsh web
 ```
+
+历史说明：本机 profile 的依赖别名仍叫 `@local/dsh-web-search-brave`（改名前遗留，DSH 运行时解析会把 manifest 包名 `dsh-brave-search` 映射到同一目录，prompt-dock 同款先例），新环境直接用上面的规范名即可。
+
+改名边界记录（2026-11-24，`@local/dsh-web-search-brave` → `dsh-brave-search`）：插件 id、locale/settings 命名空间、API 路由 `/api/brave-search/usage`、槽位键全部随新名；**存储域名 `web_search_brave` 与 CSS 前缀 `dswsb-` 保持不变**——前者保住既有统计数据，后者纯内部不可见（prompt-dock 同款先例）。seam 提供方 id `brave` 不变：它与社区插件的槽位相同，`searchProvider: brave` 的补丁写法两边通用（但同实例不可同装两者，会重复注册）。
 
 ## 开发
 

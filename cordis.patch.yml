@@ -1,14 +1,14 @@
-# @local/dsh-web-search-brave bundle patch.
+# dsh-brave-search bundle patch.
 #
 # Two entries, in layer order (later bundle layers override earlier ones, and
 # the profile user patch overrides everything):
 #
 # 1. Insert this plugin with default config. Do NOT put a real subscription
 #    token here: this file is committed to git. Fill the token in through the
-#    Plugins page form (web-search-brave → 配置), or paste it in the profile
+#    Plugins page form (brave-search → 配置), or paste it in the profile
 #    user patch layer (~/.dsh/profiles/web/cordis.patch.yml):
 #
-#      - id: web-search-brave
+#      - id: brave-search
 #        config:
 #          apiKey: <your-token>
 #
@@ -26,8 +26,8 @@
 #    would then fail with WEB_PROVIDER_AMBIGUOUS. This keeps dsh-base's local
 #    HTTP fetch selection; override it in the user patch to change it.
 - insert:
-    - id: web-search-brave
-      name: '@local/dsh-web-search-brave'
+    - id: brave-search
+      name: 'dsh-brave-search'
       config:
         apiKey: ''
 - id: web

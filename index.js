@@ -1,5 +1,5 @@
 /**
- * @local/dsh-web-search-brave — Brave Search provider for the DSH web
+ * dsh-brave-search — Brave Search provider for the DSH web
  * capability seam (`ctx.web`).
  *
  * Registers the `brave` search provider: a direct REST call to
@@ -63,12 +63,12 @@ const BRAVE_DEFAULT_API_KEY_ENV = 'BRAVE_API_KEY'
 const BRAVE_MAX_COUNT = 20
 
 /** Attribution header sent on every request; bump with the package version. */
-const USER_AGENT = 'dsh-web-search-brave/1.0.0'
+const USER_AGENT = 'dsh-brave-search/1.0.0'
 
 /** Storage domain holding one row per calendar day of usage counters. */
 const USAGE_DOMAIN_NAME = 'web_search_brave'
 /** Read-only authenticated Fetch route serving the aggregated usage snapshot. */
-const USAGE_ROUTE_PATH = '/api/web-search-brave/usage'
+const USAGE_ROUTE_PATH = '/api/brave-search/usage'
 /** Cap on the persisted last-error message so one huge error cannot bloat storage. */
 const USAGE_MESSAGE_MAX = 300
 
@@ -82,7 +82,7 @@ const RATE_LIMIT_RETRY_DELAY_MS = 1_100
 /**
  * Cordis plugin name used by loader diagnostics and patch entries.
  */
-export const name = 'web-search-brave'
+export const name = 'brave-search'
 
 /** The web seam this provider registers into. */
 export const inject = ['web']
@@ -248,7 +248,7 @@ function sleepAbortable(ms, signal) {
 /** Add endpoint recovery context to failures after request dispatch. */
 function endpointError(endpoint, message, cause) {
   return new WebError(
-    `${message}\n\nThe web request used endpoint ${JSON.stringify(endpoint)}. If that endpoint is not intended, guide the user to change baseURL (or $BRAVE_SEARCH_BASE_URL) in the web-search-brave plugin config. Only the user should choose or change the endpoint.`,
+    `${message}\n\nThe web request used endpoint ${JSON.stringify(endpoint)}. If that endpoint is not intended, guide the user to change baseURL (or $BRAVE_SEARCH_BASE_URL) in the brave-search plugin config. Only the user should choose or change the endpoint.`,
     'WEB_PROVIDER_ERROR',
     cause === undefined ? undefined : { cause },
   )
@@ -404,7 +404,7 @@ class BraveSearchProvider {
     const ambient = options.getAmbientKey?.()
     if (nonEmpty(ambient)) return ambient
     throw new WebError(
-      `Brave search has no subscription token; fill "apiKey" in the web-search-brave plugin config (Plugins page form or the profile user patch), or export ${options.apiKeyEnvName} in the launching environment / ~/.dsh/.env`,
+      `Brave search has no subscription token; fill "apiKey" in the brave-search plugin config (Plugins page form or the profile user patch), or export ${options.apiKeyEnvName} in the launching environment / ~/.dsh/.env`,
       'WEB_PROVIDER_CREDENTIAL_MISSING',
     )
   }
@@ -494,7 +494,7 @@ export class UsageTracker {
     record.updatedAt = this.now()
     if (this.table === null) return
     this.table.put(record.date, { ...record }).catch(error => {
-      this.logger?.warn?.(`web-search-brave: usage persist failed: ${String(error)}`)
+      this.logger?.warn?.(`brave-search: usage persist failed: ${String(error)}`)
     })
   }
 
@@ -609,7 +609,7 @@ async function createUsageTracker(ctx) {
     const domain = await openUsageDomain(storageDomain)
     // Own each resource from the moment it is acquired, so a later failure
     // in this apply can never leak it.
-    ctx.effect(() => async () => { await domain.close() }, 'web-search-brave: usage storage domain')
+    ctx.effect(() => async () => { await domain.close() }, 'brave-search: usage storage domain')
     const tracker = UsageTracker.restore(domain.table('days'), undefined, ctx.logger)
     const disposeRoute = await connection.fetch.register({
       path: USAGE_ROUTE_PATH,
@@ -624,10 +624,10 @@ async function createUsageTracker(ctx) {
         headers: { 'content-type': 'application/json; charset=utf-8' },
       }),
     })
-    ctx.effect(() => async () => { await disposeRoute() }, 'web-search-brave: usage route')
+    ctx.effect(() => async () => { await disposeRoute() }, 'brave-search: usage route')
     return tracker
   } catch (error) {
-    ctx.logger?.warn?.(`web-search-brave: usage statistics disabled (${String(error)})`)
+    ctx.logger?.warn?.(`brave-search: usage statistics disabled (${String(error)})`)
     return null
   }
 }
@@ -704,6 +704,6 @@ export function apply(ctx, config) {
     // plugin unloads), counting degrades to memory-only instead of writing
     // to a closing domain. Effect disposal is LIFO, so this runs before
     // createUsageTracker's domain close.
-    scope.effect(() => () => { tracker = null }, 'web-search-brave: usage tracker release')
+    scope.effect(() => () => { tracker = null }, 'brave-search: usage tracker release')
   })
 }

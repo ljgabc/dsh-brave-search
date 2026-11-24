@@ -1,12 +1,12 @@
 /**
- * Browser half of the @local/dsh-web-search-brave bundle.
+ * Browser half of the dsh-brave-search bundle.
  *
  * Registers the plugin's configuration form on the Plugins page: the
- * web-search-brave row (bundle page) gains a configure control whose page
+ * brave-search row (bundle page) gains a configure control whose page
  * renders this schema-backed form. The token field is where the user pastes
  * their Brave subscription key — the bark-notify pattern. Values and writes
  * are Host-owned — the props.form face from the plugin manager page (state +
- * mutate over the settings namespace `web-search-brave`) — so saving writes
+ * mutate over the settings namespace `brave-search`) — so saving writes
  * the profile patch through the standard configuration editor and the Host
  * half picks the volatile values up live, without a restart.
  *
@@ -14,15 +14,15 @@
  * the `dswsb-` prefix.
  */
 window.__ModuleLoader__.load({
-  id: '@local/dsh-web-search-brave',
+  id: 'dsh-brave-search',
   factory (require) {
     const React = require('react')
     const { createElement: h, useState, useEffect, memo } = React
 
-    const NS = 'web-search-brave'
-    const SETTINGS_NAMESPACE = 'web-search-brave'
-    const ROW_CONFIG_KEY = '@local/dsh-web-search-brave#web-search-brave'
-    const BUNDLE_CONFIG_KEY = '@local/dsh-web-search-brave'
+    const NS = 'brave-search'
+    const SETTINGS_NAMESPACE = 'brave-search'
+    const ROW_CONFIG_KEY = 'dsh-brave-search#brave-search'
+    const BUNDLE_CONFIG_KEY = 'dsh-brave-search'
 
     const zh = {
       'summary.off': '未配置密钥（回退环境变量 BRAVE_API_KEY）',
@@ -160,7 +160,7 @@ details[open]>.dswsb-summary::before{transform:rotate(90deg)}
       const [status, setStatus] = useState('loading')
       useEffect(() => {
         let alive = true
-        fetch('api/web-search-brave/usage')
+        fetch('api/brave-search/usage')
           .then(response => (response.ok ? response.json() : Promise.reject(new Error(`HTTP ${response.status}`))))
           .then(data => { if (alive) { setUsage(data); setStatus('ready') } })
           .catch(() => { if (alive) setStatus('error') })
@@ -336,11 +336,11 @@ details[open]>.dswsb-summary::before{transform:rotate(90deg)}
       apply (ctx) {
         const locale = ctx.get('locale')
         if (locale !== undefined) {
-          ctx.effect(() => locale.register(NS, { zh, en }), 'web-search-brave: dictionaries')
+          ctx.effect(() => locale.register(NS, { zh, en }), 'brave-search: dictionaries')
           translate = locale.bind(NS)
         }
         const slots = ctx.get('slots')
-        if (slots === undefined) throw new Error('web-search-brave requires the slots service')
+        if (slots === undefined) throw new Error('brave-search requires the slots service')
         ctx.effect(() => slots.inject('plugins.row.config', () => slots.register(
           {
             name: 'plugins.row.config',
@@ -348,7 +348,7 @@ details[open]>.dswsb-summary::before{transform:rotate(90deg)}
             locale: NS,
           },
           BraveSearchConfigForm,
-        )), 'web-search-brave: plugins row config')
+        )), 'brave-search: plugins row config')
         ctx.effect(() => slots.inject('plugins.bundle.config', () => slots.register(
           {
             name: 'plugins.bundle.config',
@@ -357,7 +357,7 @@ details[open]>.dswsb-summary::before{transform:rotate(90deg)}
             inject: () => ({ configForms: ctx.get('configForms') }),
           },
           BraveSearchBundleConfig,
-        )), 'web-search-brave: plugins bundle config')
+        )), 'brave-search: plugins bundle config')
       },
     }
   },

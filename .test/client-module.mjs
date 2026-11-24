@@ -1,4 +1,4 @@
-// Simulate the browser module loader for dsh-web-search-brave/client.js.
+// Simulate the browser module loader for dsh-brave-search/client.js.
 import { readFileSync } from 'node:fs'
 
 let registered = null
@@ -24,7 +24,7 @@ const source = readFileSync(new URL('../client.js', import.meta.url), 'utf8')
 // Evaluate the module body with the shims; the loader captures the module.
 new Function('require', 'window', source)(requireShim, globalWindow)
 
-if (registered === null || registered.id !== '@local/dsh-web-search-brave') {
+if (registered === null || registered.id !== 'dsh-brave-search') {
   console.error('FAIL: module did not register', registered)
   process.exit(1)
 }
@@ -59,7 +59,7 @@ plugin.apply(fakeCtx)
 
 const rowConfig = registrations.find(options => options.name === 'plugins.row.config')
 const bundleConfig = registrations.find(options => options.name === 'plugins.bundle.config')
-const keysOk = rowConfig?.key === '@local/dsh-web-search-brave#web-search-brave' && bundleConfig?.key === '@local/dsh-web-search-brave'
+const keysOk = rowConfig?.key === 'dsh-brave-search#brave-search' && bundleConfig?.key === 'dsh-brave-search'
 if (injections.includes('plugins.row.config') && injections.includes('plugins.bundle.config') && keysOk) {
   console.log('OK: module registers; row key =', rowConfig.key, '; bundle key =', bundleConfig.key)
   process.exit(0)
