@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.0
+
+- **补丁层不再钉扎 `searchProvider`**：安装只注册 `brave` 提供方，不改任何全局默认。此前 bundle 层自带钉扎会让"装了插件但没配密钥"的用户 `web_search` 整体撤下（`ready()=false` → 工具撤下契约），且提供方选择按 DSH rc.4 起的立场属于部署决策而非包决策。选 Brave：设置页菜单（推荐）/ 用户补丁（须同时重申 `fetchProvider`）/ `$DSH_WEB_SEARCH_PROVIDER`。从 1.0.0 升级且依赖自带钉扎的用户：在设置页选一次 Brave，或把钉扎写进用户补丁。
+
 ## 1.0.0
 
 首次公开发布（此前为自用包 `@local/dsh-web-search-brave`；npm 上 `dsh-web-search-brave` 已有社区的同类插件，公开名故取 `dsh-brave-search`）。

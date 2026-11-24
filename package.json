@@ -1,6 +1,6 @@
 {
   "name": "dsh-brave-search",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "description": "Brave Search provider for the DeepSeek Harness web capability seam (ctx.web): registers the 'brave' search provider so the model-facing web_search tool runs on Brave, with a Plugins-page config form, usage statistics, and bounded 429 retry. DSH 的 Brave 网页搜索提供方插件。",
   "keywords": [

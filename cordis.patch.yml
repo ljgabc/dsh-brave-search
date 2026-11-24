@@ -1,37 +1,38 @@
 # dsh-brave-search bundle patch.
 #
-# Two entries, in layer order (later bundle layers override earlier ones, and
-# the profile user patch overrides everything):
+# One entry: insert this plugin with default config. The plugin registers the
+# `brave` search provider; it deliberately does NOT pin `web.searchProvider` —
+# provider selection is a deployment decision (rc.4 moved it there), and a
+# bundle-layer pin would withdraw `web_search` entirely for anyone who
+# installs the plugin without configuring a key.
 #
-# 1. Insert this plugin with default config. Do NOT put a real subscription
-#    token here: this file is committed to git. Fill the token in through the
-#    Plugins page form (brave-search → 配置), or paste it in the profile
-#    user patch layer (~/.dsh/profiles/web/cordis.patch.yml):
+# To actually route searches through Brave, pick ONE of:
+#
+# 1. Web settings page: 设置 → 网页搜索和抓取 → 搜索提供方 → Brave.
+# 2. Profile user patch (~/.dsh/profiles/<profile>/cordis.patch.yml):
+#
+#      - id: web
+#        name: '@deepseek-ai/dsh-web'
+#        config:
+#          searchProvider: brave
+#          fetchProvider: http
+#
+#    `fetchProvider` MUST be restated: an override replaces the complete
+#    config object, so omitting it would leave fetchProvider unset — and with
+#    two fetch providers registered (http, deepseek-fetch-api) every web_fetch
+#    would then fail with WEB_PROVIDER_AMBIGUOUS.
+# 3. `$DSH_WEB_SEARCH_PROVIDER=brave` at launch (runtime override).
+#
+# The token itself: fill it in through the Plugins page form
+# (brave-search → 配置), or in the user patch:
 #
 #      - id: brave-search
 #        config:
 #          apiKey: <your-token>
 #
-# 2. Pin the web seam's searchProvider to brave. dsh-base already pins
-#    `searchProvider: deepseek-official` on the `web` instance, so installing
-#    this provider alone is not enough — this later-layer override wins while
-#    the bundle is listed. To switch back (or to another provider), override
-#    `id: web` again in the profile user patch, or unset the pin and let the
-#    Web search settings page manage selection. $DSH_WEB_SEARCH_PROVIDER=brave
-#    at launch is an equivalent runtime override.
-#
-#    `fetchProvider: http` MUST be restated: an override replaces the complete
-#    config object, so omitting it would leave fetchProvider unset — and with
-#    two fetch providers registered (http, deepseek-fetch-api) every web_fetch
-#    would then fail with WEB_PROVIDER_AMBIGUOUS. This keeps dsh-base's local
-#    HTTP fetch selection; override it in the user patch to change it.
+# Do NOT put a real subscription token in this file; it is committed to git.
 - insert:
     - id: brave-search
       name: 'dsh-brave-search'
       config:
         apiKey: ''
-- id: web
-  name: '@deepseek-ai/dsh-web'
-  config:
-    searchProvider: brave
-    fetchProvider: http

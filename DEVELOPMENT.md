@@ -5,7 +5,7 @@
 ## 工作原理
 
 - 注册进 `ctx.web` 搜索提供方注册表，id 为 `brave`；`dsh-tool-web` 渲染的 `web_search` 工具经 seam 调用它。
-- `dsh-base` 默认把 `searchProvider` 钉在 `deepseek-official`；本插件发布的补丁层把 `web` 实例改钉为 `brave`（后列 bundle 层覆盖先列，profile 用户补丁层覆盖一切）。
+- **不钉扎**：1.1.0 起补丁层只注册提供方，不设置 `searchProvider`——提供方选择是部署决策（rc.4 起 DSH 官方即此立场），且 bundle 层钉扎会让"装了插件但没配密钥"的用户 `web_search` 整体消失。选 Brave 走设置页 / 用户补丁 / 环境变量（见 README）。
 - 密钥解析遵循 harness 统一顺序：配置里的 `apiKey` → 凭据服务的 `BRAVE_API_KEY` 引用 → 启动环境快照（`BRAVE_API_KEY`，含 `~/.dsh/.env`）。每次搜索重新解析，改密钥无需重启。
 - 未配置密钥时 `ready()` 返回 false，`dsh-tool-web` 自动从模型请求中撤下 `web_search`——不会让模型拿着不可用的工具空跑。
 - 结果映射：`web` / `news` / `videos` / `discussions` 各组统一归一，按 URL 去重；`description` 反转义 HTML 实体并去除标记；`page_age` 仅在形如 ISO 8601 日期时透传为 `publishedAt`，其余省略不发明。
@@ -23,33 +23,32 @@
 | 已设置但未注册 | 每次搜索以 `WEB_PROVIDER_CONFIGURED_MISSING` 失败 |
 | 已设置但不可用 | `WEB_PROVIDER_CONFIGURED_UNAVAILABLE` |
 | 未设置，恰好一个可用 | 自动选它 |
-| 未设置，多个可用 | `WEB_PROVIDER_AMBIGUOUS`（本 profile 注册了 3 个搜索提供方，钉扎因此必要） |
+| 未设置，多个可用 | `WEB_PROVIDER_AMBIGUOUS`（DeepSeek 路线除外：rc.4 起 route-assigned 提供方优先，DeepSeek 模型会话落 Messages 搜索，非 DeepSeek 路线落 `deepseek-search-api`） |
 | 未设置，无可用 | `WEB_PROVIDER_UNAVAILABLE` |
 
 另一个刻意行为：选中的提供方没有凭据时（`ready()` = false），`web_search` 整个从模型请求中撤下，**不会静默回退**到其他提供方——诚实的不可用优于隐式降级。
 
 ## 切换搜索引擎
 
-本插件的补丁层把 `searchProvider` 钉到了 `brave`，并**同时重申 `fetchProvider: http`**——补丁条目按"整对象替换"组合，漏写会把 dsh-base 的抓取钉扎顶掉，导致两个抓取提供方（`http`、`deepseek-fetch-api`）无钉扎竞争、每次 `web_fetch` 以 `WEB_PROVIDER_AMBIGUOUS` 失败（此 bug 曾实际发生并已修复）。想换抓取后端时在用户层一并覆盖。三种切换方式写的都是同一个字段：
+选 Brave 的三种方式写同一个字段（详见 README）：设置页菜单 / 用户补丁钉扎 / `$DSH_WEB_SEARCH_PROVIDER`。在用户补丁层钉扎时**必须同时重申 `fetchProvider: http`**——补丁条目按"整对象替换"组合，漏写会顶掉 dsh-base 的抓取钉扎，导致两个抓取提供方（`http`、`deepseek-fetch-api`）无钉扎竞争、每次 `web_fetch` 以 `WEB_PROVIDER_AMBIGUOUS` 失败（此 bug 曾实际发生并已修复）。想换抓取后端时在用户层一并覆盖。
 
 ```yaml
-# 方式一：用户补丁层覆盖（~/.dsh/profiles/web/cordis.patch.yml，用户层覆盖一切 bundle 层）
+# 用户补丁层钉扎（~/.dsh/profiles/web/cordis.patch.yml，用户层覆盖一切 bundle 层）
 - id: web
   name: "@deepseek-ai/dsh-web"
   config:
-    searchProvider: deepseek-official   # 或 deepseek-search-api（建议同时 fetchProvider: deepseek-fetch-api）
+    searchProvider: brave                # 或 deepseek-official / deepseek-search-api
+    fetchProvider: http                  # 必须重申，见上
 ```
 
-方式二：GUI 的 **Plugins > 内置插件配置 > 网页搜索** 设置页切换（保存写回同一配置；开关仅在 Host 同时服务 `web` 与 `web-deepseek-api` 命名空间时显示）。
-
-方式三：`DSH_WEB_SEARCH_PROVIDER=deepseek-official dsh web`。注意其兜底语义是 `配置值 ?? 环境变量`（见 dsh-web 源码 `selectSearchProvider`）：本插件的补丁层已把字段钉为 `brave`，配置值存在时环境变量**不生效**；只有组合配置未钉扎该字段时它才接管。
+环境变量兜底语义是 `配置值 ?? 环境变量`（见 dsh-web 源码 `selectSearchProvider`）：设置页或补丁钉扎存在时环境变量**不生效**；只有配置未钉扎该字段时它才接管。
 
 ## 停用本插件时的两种开关，行为完全不同
 
-- **Bundle 级开关**（Plugins 页里 `dsh-brave-search` 这一层 / `set_bundle`）：整层补丁退出组合——**连同 `searchProvider: brave` 钉扎一起消失**，`dsh-base` 的 `deepseek-official` 钉扎重新生效，自动回退。依赖保留在 node_modules，随时可再启用。已实测验证。
-- **插件条目开关**（条目上的 disable / `set_plugin`）：只给 `brave-search` 条目写 `disabled: true`，本插件不加载；但补丁层里**独立的 `id: web` 钉扎条目仍然生效**——`searchProvider: brave` 指向一个未注册的提供方，每次 `web_search` 以 `WEB_PROVIDER_CONFIGURED_MISSING` 结构化失败（且工具仍会出现：选择失败时 `searchReady` 按契约回答 true）。**这是坏状态，不是回退。**
+- **Bundle 级开关**（Plugins 页里 `dsh-brave-search` 这一层 / `set_bundle`）：整层补丁退出组合，`brave` 提供方注销。若设置页/补丁钉在 brave，搜索以 `WEB_PROVIDER_CONFIGURED_MISSING` 失败或整体撤下；改回设置页 Automatic（或改钉）即恢复默认。依赖保留在 node_modules，随时可再启用。
+- **插件条目开关**（条目上的 disable / `set_plugin`）：只给 `brave-search` 条目写 `disabled: true`，本插件不加载；若钉扎仍指向 brave，效果与上面相同——提供方未注册而选择仍在。**这是坏状态，不是回退。**
 
-要停用 Brave 但保留插件，用方式一在用户层改钉 `searchProvider` 即可；条目级 disable 前必须同时改钉，否则搜索直接报错。
+要停用 Brave 但保留插件，把设置页改回 Automatic 或在用户层改钉即可；条目/bundle 级 disable 前先解除 brave 钉扎，否则搜索直接报错。
 
 ## 配置
 

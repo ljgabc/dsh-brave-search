@@ -14,7 +14,7 @@ DSH 自带的网页搜索走 DeepSeek 系路由。如果你有 Brave Search 订�
 
 ## 功能
 
-- **一键接入**：安装后在 Plugins 页把 `searchProvider` 钉到 `brave`，`web_search` 即刻换后端
+- **一键接入**：安装后在 设置 → 网页搜索和抓取 把搜索提供方选为 Brave（或用户补丁钉扎），`web_search` 即刻换后端；插件本身不改动任何全局默认
 - **插件页配置表单**：密钥、API 根地址（可走代理）、国家/语言、结果类型，保存即时生效，无需重启
 - **使用统计**：今日/累计搜索、成功/失败/取消/限速、近 7 天柱状图、最近错误——数据存 Host 侧，重启不丢
 - **凭据三级回退**：配置密钥 → 凭据服务（`BRAVE_API_KEY` 引用）→ 启动环境变量（含 `~/.dsh/.env`），每次搜索重新解析，改密钥不用重启
@@ -61,7 +61,13 @@ git clone https://github.com/ljgabc/dsh-brave-search.git && dsh plugin --profile
 | 搜索语言 | 如 `zh-hans`、`en`，留空由 Brave 判定 |
 | 结果类型 | Brave `result_filter`，逗号分隔，默认 `web,news`，可加 `videos`、`discussions` |
 
-钉扎说明：插件补丁层会把 `searchProvider` 钉为 `brave` 并同时重申 `fetchProvider: http`（补丁按整对象替换，漏写 fetch 钉扎会让每次 `web_fetch` 因多提供方竞争而失败）。想换回 DeepSeek 搜索，在用户补丁层覆盖 `id: web` 的 `searchProvider` 即可。
+选择 Brave（三选一）：
+
+1. **设置页**（推荐）：设置 → 网页搜索和抓取 → 搜索提供方 → Brave，保存即生效；
+2. **用户补丁**：`~/.dsh/profiles/<profile>/cordis.patch.yml` 加 `- id: web, config: { searchProvider: brave, fetchProvider: http }`——`fetchProvider` 必须一并重申（补丁按整对象替换，漏写会让每次 `web_fetch` 因多提供方竞争而失败）；
+3. **环境变量**：启动时 `$DSH_WEB_SEARCH_PROVIDER=brave`。
+
+> **未选 Brave 之前，本插件不改变任何行为**：只注册一个可用提供方，默认搜索维持 DSH 原状。反过来，一旦选了 Brave 但没配密钥，`web_search` 会整体撤下（诚实的不可用优于静默回退）——所以先配密钥、再切换。
 
 ## 使用统计
 
