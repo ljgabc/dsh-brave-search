@@ -94,9 +94,7 @@
 # 4. 重启 dsh web
 ```
 
-历史说明：本机 profile 的依赖别名仍叫 `@local/dsh-web-search-brave`（改名前遗留，DSH 运行时解析会把 manifest 包名 `dsh-brave-search` 映射到同一目录，prompt-dock 同款先例），新环境直接用上面的规范名即可。
-
-改名边界记录（2026-11-24，`@local/dsh-web-search-brave` → `dsh-brave-search`）：插件 id、locale/settings 命名空间、API 路由 `/api/brave-search/usage`、槽位键全部随新名；**存储域名 `web_search_brave` 与 CSS 前缀 `dswsb-` 保持不变**——前者保住既有统计数据，后者纯内部不可见（prompt-dock 同款先例）。seam 提供方 id `brave` 不变：它与社区插件的槽位相同，`searchProvider: brave` 的补丁写法两边通用（但同实例不可同装两者，会重复注册）。
+历史说明：本目录是开发检出（目录名已随包名改为 `dsh-brave-search`）；本机 profile 已改为直接消费 npm 包 `dsh-brave-search: ^1.1.0`，不再软链本目录——改本目录代码后需 `npm publish` 并更新 profile 依赖才能在运行实例生效（或临时切回 link 方式）。改名边界记录（2026-11-24，`@local/dsh-web-search-brave` → `dsh-brave-search`）：插件 id、locale/settings 命名空间、API 路由 `/api/brave-search/usage`、槽位键全部随新名；**存储域名 `web_search_brave` 与 CSS 前缀 `dswsb-` 保持不变**——前者保住既有统计数据，后者纯内部不可见（prompt-dock 同款先例）。seam 提供方 id `brave` 不变：它与社区插件的槽位相同，`searchProvider: brave` 的补丁写法两边通用（但同实例不可同装两者，会重复注册）。
 
 ## 开发
 
